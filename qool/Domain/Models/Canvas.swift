@@ -16,6 +16,9 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
     var fillColor: CanvasColor
     var strokeColor: CanvasColor
     var strokeWidth: CGFloat
+    var showsStroke: Bool
+    var text: String
+    var rotationAngleDegrees: Double
 
     init(
         id: UUID = UUID(),
@@ -23,7 +26,10 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         frame: CGRect,
         fillColor: CanvasColor,
         strokeColor: CanvasColor = .ink,
-        strokeWidth: CGFloat = 2
+        strokeWidth: CGFloat = 2,
+        showsStroke: Bool = true,
+        text: String = "テキスト",
+        rotationAngleDegrees: Double = 0
     ) {
         self.id = id
         self.kind = kind
@@ -31,13 +37,17 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         self.fillColor = fillColor
         self.strokeColor = strokeColor
         self.strokeWidth = strokeWidth
+        self.showsStroke = showsStroke
+        self.text = text
+        self.rotationAngleDegrees = rotationAngleDegrees
     }
 }
 
 enum CanvasElementKind: String, CaseIterable, Identifiable, Hashable {
     case rectangle
-    case curve
-    case textPath
+    case path
+    case line
+    case text
     case imageCutout
 
     var id: String { rawValue }
@@ -46,8 +56,9 @@ enum CanvasElementKind: String, CaseIterable, Identifiable, Hashable {
 enum CanvasTool: String, CaseIterable, Identifiable, Hashable {
     case select = "選択"
     case rectangle = "矩形"
-    case curve = "曲線"
-    case textPath = "入力欄"
+    case path = "パス"
+    case line = "直線"
+    case text = "テキスト"
     case image = "画像"
 
     var id: String { rawValue }
@@ -59,6 +70,7 @@ enum CanvasColor: String, CaseIterable, Identifiable, Hashable {
     case coral
     case sky
     case ink
+    case clear
 
     var id: String { rawValue }
 
@@ -74,6 +86,25 @@ enum CanvasColor: String, CaseIterable, Identifiable, Hashable {
             Color(red: 0.48, green: 0.68, blue: 0.90)
         case .ink:
             Color(red: 0.12, green: 0.14, blue: 0.16)
+        case .clear:
+            Color.clear
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .paper:
+            "紙"
+        case .mint:
+            "ミント"
+        case .coral:
+            "コーラル"
+        case .sky:
+            "スカイ"
+        case .ink:
+            "インク"
+        case .clear:
+            "透明"
         }
     }
 }

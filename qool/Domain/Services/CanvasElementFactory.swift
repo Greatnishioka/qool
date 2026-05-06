@@ -1,32 +1,71 @@
 import CoreGraphics
 
 struct CanvasElementFactory {
-    func makeElement(for tool: CanvasTool) -> CanvasElement? {
+
+    /**
+    * 指定されたツールに基づいて、キャンバス要素を作成します。
+    */
+    func makeElement(for tool: CanvasTool, at origin: CGPoint? = nil) -> CanvasElement? {
+
+        // 要素のフレームを、指定された原点を中心に配置するためのヘルパー関数
+        func centeredFrame(width: CGFloat, height: CGFloat) -> CGRect {
+            let point = origin ?? CGPoint(x: 160, y: 160)
+            return CGRect(
+                x: point.x - width / 2,
+                y: point.y - height / 2,
+                width: width,
+                height: height
+            )
+        }
+
         switch tool {
+
+        // 選択ツールは新しい要素を作成しないため、nil を返す。
         case .select:
-            nil
+            return nil
+
+        // 矩形 (四角形) の場合。
         case .rectangle:
-            CanvasElement(
+            return CanvasElement(
                 kind: .rectangle,
-                frame: CGRect(x: 64, y: 96, width: 180, height: 120),
+                frame: centeredFrame(width: 180, height: 120),
                 fillColor: .paper
             )
-        case .curve:
-            CanvasElement(
-                kind: .curve,
-                frame: CGRect(x: 96, y: 140, width: 180, height: 96),
+        
+        // パス (フリーハンドの線) の場合。
+        case .path:
+            return CanvasElement(
+                kind: .path,
+                frame: centeredFrame(width: 190, height: 110),
                 fillColor: .sky
             )
-        case .textPath:
-            CanvasElement(
-                kind: .textPath,
-                frame: CGRect(x: 72, y: 88, width: 220, height: 140),
-                fillColor: .mint
+
+        // 直線のツールの場合。
+        case .line:
+            return CanvasElement(
+                kind: .line,
+                frame: centeredFrame(width: 180, height: 28),
+                fillColor: .clear,
+                strokeWidth: 4
             )
+
+        // テキストツールの場合。
+        case .text:
+            return CanvasElement(
+                kind: .text,
+                frame: centeredFrame(width: 180, height: 64),
+                fillColor: .clear,
+                strokeWidth: 0,
+                showsStroke: false,
+                text: "テキスト"
+            )
+
+        // 画像ツールの場合。
+        // 現時点では、未実装
         case .image:
-            CanvasElement(
+            return CanvasElement(
                 kind: .imageCutout,
-                frame: CGRect(x: 80, y: 120, width: 200, height: 160),
+                frame: centeredFrame(width: 200, height: 160),
                 fillColor: .coral
             )
         }

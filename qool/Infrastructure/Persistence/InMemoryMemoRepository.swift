@@ -34,9 +34,11 @@ final class InMemoryMemoRepository: MemoRepository {
                     fillColor: .paper
                 ),
                 CanvasElement(
-                    kind: .textPath,
+                    kind: .text,
                     frame: CGRect(x: 84, y: 112, width: 156, height: 76),
-                    fillColor: .mint
+                    fillColor: .clear,
+                    showsStroke: false,
+                    text: "牛乳\n卵\nコーヒー"
                 )
             ])
         ),

@@ -63,6 +63,12 @@ final class AppRootViewModel: ObservableObject {
         reload()
     }
 
+    func saveMemo(_ memo: Memo) {
+        selectedMemo = memo
+        saveMemoUseCase.execute(memo)
+        reload()
+    }
+
     func updateAdjustment(_ adjustment: ImageAdjustment) {
         imageAdjustment = adjustment
     }
