@@ -1,24 +1,9 @@
-//
-//  ContentView.swift
-//  qool
-//
-//  Created by 西岡 on 2026/05/06.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    @StateObject private var viewModel = AppRootViewModel.bootstrap()
 
-#Preview {
-    ContentView()
+    var body: some View {
+        AppRootView(viewModel: viewModel)
+    }
 }
