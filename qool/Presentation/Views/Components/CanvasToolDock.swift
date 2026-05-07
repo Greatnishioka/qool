@@ -4,34 +4,41 @@ struct CanvasToolDock: View {
     let selectedTool: CanvasTool
     let onSelectTool: (CanvasTool) -> Void
 
+    @Namespace private var selectionNamespace
+
     private let tools: [CanvasTool] = [.select, .rectangle, .path, .line, .text]
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(tools) { tool in
-                Button {
-                    onSelectTool(tool)
-                } label: {
-                    Image(systemName: iconName(for: tool))
-                        .font(.system(size: 20, weight: .semibold))
-                        .frame(width: 48, height: 44)
-                        .contentShape(Rectangle())
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                ForEach(tools) { tool in
+                    let isSelected = selectedTool == tool
+
+                    Button {
+                        withAnimation(.smooth(duration: 0.28, extraBounce: 0.18)) {
+                            onSelectTool(tool)
+                        }
+                    } label: {
+                        Image(systemName: iconName(for: tool))
+                            .font(.system(size: 20, weight: .semibold))
+                            .frame(width: 52, height: 48)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.primary.opacity(0.78))
+                    .background {
+                        if isSelected {
+                            Capsule()
+                                .glassEffect(.regular.tint(Color.accentColor.opacity(0.18)).interactive(), in: Capsule())
+                                .matchedGeometryEffect(id: "selectedToolHighlight", in: selectionNamespace)
+                        }
+                    }
+                    .accessibilityLabel(tool.rawValue)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(selectedTool == tool ? Color.white : Color.primary)
-                .background {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(selectedTool == tool ? Color.accentColor : Color.clear)
-                }
-                .accessibilityLabel(tool.rawValue)
             }
         }
-        .padding(8)
-        .background {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.12), radius: 18, y: 6)
-        }
+        .padding(6)
+        .glassEffect(.regular.interactive(), in: Capsule())
     }
 
     private func iconName(for tool: CanvasTool) -> String {

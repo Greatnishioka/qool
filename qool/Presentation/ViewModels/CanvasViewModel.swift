@@ -9,6 +9,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var selectedElementID: CanvasElement.ID?
     @Published var draftElement: CanvasElement?
 
+    private var pathDraftPoints: [CGPoint] = []
     private let elementFactory: CanvasElementFactory
     private let onSave: (Memo) -> Void
 
@@ -32,24 +33,47 @@ final class CanvasViewModel: ObservableObject {
         return memo.canvas.elements.first { $0.id == selectedElementID }
     }
 
-    // 選択をクリアする関数。選択された要素がなくなる。
+    // 選択をクリアする関数。
     func clearSelection() {
         selectedElementID = nil
     }
 
     // ツールを選択する関数。選択ツール以外が選ばれた場合、選択状態をクリアする。
     func selectTool(_ tool: CanvasTool) {
+        if selectedTool == .path, tool != .path {
+            clearPathDraft()
+        }
+
         selectedTool = tool
         if tool != .select {
             clearSelection()
         }
     }
 
+    func placePathPoint(at point: CGPoint, canvasSize: CGSize) {
+        guard selectedTool == .path else {
+            return
+        }
+
+        let point = clamped(point, in: canvasSize)
+
+        // 3点以上ある場合かつ、最初の点の近くに点を置くと、パスを閉じる
+        if pathDraftPoints.count >= 3,
+           let firstPoint = pathDraftPoints.first,
+           distance(from: point, to: firstPoint) <= 18 {
+            commitPathDraft()
+            return
+        }
+
+        pathDraftPoints.append(point)
+        draftElement = makePathElement(from: pathDraftPoints, isClosed: false)
+    }
+
     // ドラッグ中に使用する関数。ドラッグの開始点から現在の位置までの間で、ドラフト要素を更新する。
     func updateDraft(from start: CGPoint, to current: CGPoint, canvasSize: CGSize) {
 
-        // 選択ツールが選ばれている場合、ドラフト要素は作成しない。
-        guard selectedTool != .select else {
+        // 選択ツールと、曲線ツールが選ばれている場合、ドラフト要素は作成しない。
+        guard selectedTool != .select, selectedTool != .path else {
             return
         }
 
@@ -182,19 +206,15 @@ final class CanvasViewModel: ObservableObject {
 
     private func makeElement(for tool: CanvasTool, from start: CGPoint, to current: CGPoint) -> CanvasElement? {
         switch tool {
-        case .select:
+
+            // 選択ツールと、曲線ツールが選ばれている場合、要素は作成しない。
+        case .select, .path:
             return nil
         case .rectangle:
             return CanvasElement(
                 kind: .rectangle,
                 frame: normalizedFrame(from: start, to: current, minimumSize: CGSize(width: 1, height: 1)),
                 fillColor: .paper
-            )
-        case .path:
-            return CanvasElement(
-                kind: .path,
-                frame: normalizedFrame(from: start, to: current, minimumSize: CGSize(width: 1, height: 1)),
-                fillColor: .sky
             )
         case .line:
             let dx = current.x - start.x
@@ -226,6 +246,64 @@ final class CanvasViewModel: ObservableObject {
                 fillColor: .coral
             )
         }
+    }
+
+    // 最終的にパスを確定し、キャンバスに描画する関数。
+    private func commitPathDraft() {
+
+        // パスが3点以下の場合はドラフトをクリアして終了する。
+        guard let pathElement = makePathElement(from: pathDraftPoints, isClosed: true),
+              pathElement.pathPoints.count >= 3 else {
+            clearPathDraft()
+            return
+        }
+
+        memo.canvas.elements.append(pathElement)
+        selectedTool = .select
+        selectedElementID = pathElement.id
+        clearPathDraft()
+        save()
+    }
+
+    // パスのドラフトをクリアする関数。ドラフト用の点の配列とドラフト要素をリセットする。
+    private func clearPathDraft() {
+        pathDraftPoints = []
+        draftElement = nil
+    }
+
+    // 点の配列からパス要素を作成する関数。点の配列と、パスが閉じているかどうかを引数に取り、CanvasElement を返す。
+    private func makePathElement(from points: [CGPoint], isClosed: Bool) -> CanvasElement? {
+        guard let firstPoint = points.first else {
+            return nil
+        }
+
+        let bounds = points.dropFirst().reduce(CGRect(origin: firstPoint, size: .zero)) { partialResult, point in
+            partialResult.union(CGRect(origin: point, size: .zero))
+        }
+        let frame = bounds.insetBy(dx: -8, dy: -8)
+        let safeFrame = CGRect(
+            x: frame.minX,
+            y: frame.minY,
+            width: max(frame.width, 16),
+            height: max(frame.height, 16)
+        )
+        let pathPoints = points.map { point in
+            NormalizedPoint(
+                x: Double((point.x - safeFrame.minX) / safeFrame.width),
+                y: Double((point.y - safeFrame.minY) / safeFrame.height)
+            )
+        }
+
+        return CanvasElement(
+            kind: .path,
+            frame: safeFrame,
+            fillColor: .sky,
+            strokeColor: .ink,
+            strokeWidth: 2,
+            showsStroke: true,
+            pathPoints: pathPoints,
+            isClosedPath: isClosed
+        )
     }
 
     private func normalizedFrame(from start: CGPoint, to current: CGPoint, minimumSize: CGSize) -> CGRect {
@@ -265,5 +343,10 @@ final class CanvasViewModel: ObservableObject {
     private func hitFrame(for element: CanvasElement) -> CGRect {
         let inset: CGFloat = element.kind == .line ? -16 : -4
         return element.frame.insetBy(dx: inset, dy: inset)
+    }
+
+    // 距離計算関数。三角形の定理で斜辺を計算するイメージ。
+    private func distance(from lhs: CGPoint, to rhs: CGPoint) -> CGFloat {
+        hypot(lhs.x - rhs.x, lhs.y - rhs.y)
     }
 }

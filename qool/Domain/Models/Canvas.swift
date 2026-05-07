@@ -19,6 +19,8 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
     var showsStroke: Bool
     var text: String
     var rotationAngleDegrees: Double
+    var pathPoints: [NormalizedPoint]
+    var isClosedPath: Bool
 
     init(
         id: UUID = UUID(),
@@ -29,7 +31,9 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         strokeWidth: CGFloat = 2,
         showsStroke: Bool = true,
         text: String = "テキスト",
-        rotationAngleDegrees: Double = 0
+        rotationAngleDegrees: Double = 0,
+        pathPoints: [NormalizedPoint] = [],
+        isClosedPath: Bool = true
     ) {
         self.id = id
         self.kind = kind
@@ -40,6 +44,8 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         self.showsStroke = showsStroke
         self.text = text
         self.rotationAngleDegrees = rotationAngleDegrees
+        self.pathPoints = pathPoints
+        self.isClosedPath = isClosedPath
     }
 }
 

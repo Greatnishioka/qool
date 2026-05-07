@@ -31,6 +31,7 @@ struct CanvasView: View {
                         onHitTestElement: viewModel.elementID,
                         onUpdateDraft: viewModel.updateDraft,
                         onCommitDraft: viewModel.commitDraft,
+                        onPlacePathPoint: viewModel.placePathPoint,
                         onSelectElement: viewModel.selectElement,
                         onMoveSelectedElement: viewModel.moveSelectedElement
                     )

@@ -9,6 +9,7 @@ struct CanvasSurface: View {
     let onHitTestElement: (CGPoint) -> CanvasElement.ID?
     let onUpdateDraft: (CGPoint, CGPoint, CGSize) -> Void
     let onCommitDraft: (CGPoint, CGPoint, CGSize) -> Void
+    let onPlacePathPoint: (CGPoint, CGSize) -> Void
     let onSelectElement: (CanvasElement.ID) -> Void
     let onMoveSelectedElement: (CGSize, CGSize) -> Void
 
@@ -25,11 +26,6 @@ struct CanvasSurface: View {
                             .stroke(Color(.separator).opacity(0.28), lineWidth: 0.5)
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        if selectedTool == .select {
-                            onClearSelection()
-                        }
-                    }
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
@@ -42,6 +38,10 @@ struct CanvasSurface: View {
                                     }
 
                                     activeDragTranslation = activeDragElementID == nil ? .zero : value.translation
+                                    return
+                                }
+
+                                if selectedTool == .path {
                                     return
                                 }
 
@@ -62,6 +62,13 @@ struct CanvasSurface: View {
                                     onSelectElement(activeDragElementID)
                                     if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
                                         onMoveSelectedElement(value.translation, proxy.size)
+                                    }
+                                    return
+                                }
+
+                                if selectedTool == .path {
+                                    if abs(value.translation.width) <= 4, abs(value.translation.height) <= 4 {
+                                        onPlacePathPoint(value.location, proxy.size)
                                     }
                                     return
                                 }
@@ -123,9 +130,20 @@ private struct CanvasElementView: View {
                 .fill(element.fillColor.swiftUIColor)
                 .overlay(strokeOverlay(Rectangle()))
         case .path:
-            PathShape()
-                .fill(element.fillColor.swiftUIColor.opacity(0.75))
-                .overlay(strokeOverlay(PathShape()))
+            if element.pathPoints.isEmpty {
+                LegacyPathShape()
+                    .fill(element.fillColor.swiftUIColor.opacity(0.75))
+                    .overlay(strokeOverlay(LegacyPathShape()))
+            } else {
+                BezierPathShape(points: element.pathPoints, isClosed: element.isClosedPath)
+                    .fill(element.fillColor.swiftUIColor.opacity(element.isClosedPath ? 0.75 : 0.18))
+                    .overlay(strokeOverlay(BezierPathShape(points: element.pathPoints, isClosed: element.isClosedPath)))
+                    .overlay {
+                        if !element.isClosedPath {
+                            PathPointMarkers(points: element.pathPoints)
+                        }
+                    }
+            }
         case .line:
             LineShape()
                 .stroke(
@@ -196,7 +214,7 @@ private struct GridPattern: Shape {
     }
 }
 
-private struct PathShape: Shape {
+private struct LegacyPathShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.minX + rect.width * 0.14, y: rect.midY))
@@ -213,6 +231,94 @@ private struct PathShape: Shape {
         )
         path.closeSubpath()
         return path
+    }
+}
+
+private struct BezierPathShape: Shape {
+    let points: [NormalizedPoint]
+    let isClosed: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let cgPoints = points.map { point in
+            CGPoint(
+                x: rect.minX + rect.width * CGFloat(point.x),
+                y: rect.minY + rect.height * CGFloat(point.y)
+            )
+        }
+
+        var path = Path()
+        guard let firstPoint = cgPoints.first else {
+            return path
+        }
+
+        if cgPoints.count == 1 {
+            path.addEllipse(in: CGRect(x: firstPoint.x - 4, y: firstPoint.y - 4, width: 8, height: 8))
+            return path
+        }
+
+        path.move(to: firstPoint)
+
+        if cgPoints.count == 2 {
+            path.addLine(to: cgPoints[1])
+        } else {
+            addSmoothedSegments(to: &path, points: cgPoints)
+        }
+
+        if isClosed {
+            if cgPoints.count > 2 {
+                addClosingCurve(to: &path, points: cgPoints)
+            }
+            path.closeSubpath()
+        }
+
+        return path
+    }
+
+    private func addSmoothedSegments(to path: inout Path, points: [CGPoint]) {
+        for index in 1..<points.count {
+            if index == points.count - 1 {
+                path.addQuadCurve(to: points[index], control: points[index - 1])
+            } else {
+                let midpoint = CGPoint(
+                    x: (points[index].x + points[index + 1].x) / 2,
+                    y: (points[index].y + points[index + 1].y) / 2
+                )
+                path.addQuadCurve(to: midpoint, control: points[index])
+            }
+        }
+    }
+
+    private func addClosingCurve(to path: inout Path, points: [CGPoint]) {
+        guard let firstPoint = points.first, let lastPoint = points.last else {
+            return
+        }
+
+        let midpoint = CGPoint(
+            x: (lastPoint.x + firstPoint.x) / 2,
+            y: (lastPoint.y + firstPoint.y) / 2
+        )
+        path.addQuadCurve(to: midpoint, control: lastPoint)
+        path.addQuadCurve(to: firstPoint, control: firstPoint)
+    }
+}
+
+private struct PathPointMarkers: View {
+    let points: [NormalizedPoint]
+
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(Array(points.enumerated()), id: \.offset) { index, point in
+                Circle()
+                    .fill(index == 0 ? Color.accentColor : Color.white)
+                    .frame(width: 8, height: 8)
+                    .overlay(Circle().stroke(Color.accentColor, lineWidth: 1.5))
+                    .position(
+                        x: proxy.size.width * CGFloat(point.x),
+                        y: proxy.size.height * CGFloat(point.y)
+                    )
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
