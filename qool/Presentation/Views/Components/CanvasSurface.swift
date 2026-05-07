@@ -4,20 +4,30 @@ struct CanvasSurface: View {
     let elements: [CanvasElement]
     let draftElement: CanvasElement?
     let selectedElementIDs: Set<CanvasElement.ID>
+    let unionSourceElements: [CanvasElementSnapshot]
+    let selectedUnionSourceID: CanvasElementSnapshot.ID?
     let selectedTool: CanvasTool
     let onClearSelection: () -> Void
     let onHitTestElement: (CGPoint) -> CanvasElement.ID?
+    let onHitTestUnionSource: (CGPoint) -> CanvasElementSnapshot.ID?
     let onSelectElements: (CGRect) -> Void
     let onUpdateDraft: (CGPoint, CGPoint, CGSize) -> Void
     let onCommitDraft: (CGPoint, CGPoint, CGSize) -> Void
     let onPlacePathPoint: (CGPoint, CGSize) -> Void
     let onSelectElement: (CanvasElement.ID) -> Void
     let onMoveSelectedElement: (CGSize, CGSize) -> Void
+    let onDoubleTap: (CGPoint) -> Void
+    let onSelectUnionSource: (CanvasElementSnapshot.ID) -> Void
+    let onMoveUnionSource: (CanvasElementSnapshot.ID, CGSize, CGSize) -> Void
 
     @State private var activeDragTranslation: CGSize = .zero
     @State private var activeDragElementIDs: Set<CanvasElement.ID> = []
+    @State private var activeUnionSourceID: CanvasElementSnapshot.ID?
+    @State private var activeUnionSourceTranslation: CGSize = .zero
     @State private var selectionDragStart: CGPoint?
     @State private var selectionDragCurrent: CGPoint?
+    @State private var lastTapLocation: CGPoint?
+    @State private var lastTapDate: Date?
 
     var body: some View {
         GeometryReader { proxy in
@@ -34,8 +44,11 @@ struct CanvasSurface: View {
                             .onChanged { value in
                                 if selectedTool == .select {
                                     // ドラッグ開始時に、ヒットテストを行い、要素がヒットした場合はその要素を選択状態にする。複数選択されている場合は、ヒットした要素が選択されているかどうかで、ドラッグの対象を切り替える。どの要素もヒットしなかった場合は、選択用のドラッグとして扱う。
-                                    if activeDragElementIDs.isEmpty, selectionDragStart == nil {
-                                        if let hitElementID = onHitTestElement(value.startLocation) {
+                                    if activeDragElementIDs.isEmpty, activeUnionSourceID == nil, selectionDragStart == nil {
+                                        if let hitUnionSourceID = onHitTestUnionSource(value.startLocation) {
+                                            onSelectUnionSource(hitUnionSourceID)
+                                            activeUnionSourceID = hitUnionSourceID
+                                        } else if let hitElementID = onHitTestElement(value.startLocation) {
                                             if selectedElementIDs.contains(hitElementID) {
                                                 activeDragElementIDs = selectedElementIDs
                                             } else {
@@ -49,7 +62,11 @@ struct CanvasSurface: View {
                                     }
 
                                     if activeDragElementIDs.isEmpty {
-                                        selectionDragCurrent = value.location
+                                        if activeUnionSourceID == nil {
+                                            selectionDragCurrent = value.location
+                                        } else {
+                                            activeUnionSourceTranslation = value.translation
+                                        }
                                     } else {
                                         activeDragTranslation = value.translation
                                     }
@@ -67,8 +84,18 @@ struct CanvasSurface: View {
                                     defer {
                                         activeDragElementIDs.removeAll()
                                         activeDragTranslation = .zero
+                                        activeUnionSourceID = nil
+                                        activeUnionSourceTranslation = .zero
                                         selectionDragStart = nil
                                         selectionDragCurrent = nil
+                                    }
+
+                                    if let activeUnionSourceID {
+                                        onSelectUnionSource(activeUnionSourceID)
+                                        if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
+                                            onMoveUnionSource(activeUnionSourceID, value.translation, proxy.size)
+                                        }
+                                        return
                                     }
 
                                     if !activeDragElementIDs.isEmpty {
@@ -78,6 +105,8 @@ struct CanvasSurface: View {
 
                                         if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
                                             onMoveSelectedElement(value.translation, proxy.size)
+                                        } else {
+                                            registerTap(at: value.startLocation)
                                         }
                                         return
                                     }
@@ -118,6 +147,17 @@ struct CanvasSurface: View {
                     .allowsHitTesting(false)
                 }
 
+                ForEach(unionSourceElements) { sourceElement in
+                    CanvasElementView(
+                        element: sourceElement.element,
+                        isSelected: selectedUnionSourceID == sourceElement.id,
+                        selectedTool: selectedTool
+                    )
+                    .opacity(selectedUnionSourceID == sourceElement.id ? 0.62 : 0.34)
+                    .offset(activeUnionSourceID == sourceElement.id ? activeUnionSourceTranslation : .zero)
+                    .allowsHitTesting(false)
+                }
+
                 if let selectionDragStart, let selectionDragCurrent {
                     SelectionMarquee(frame: normalizedFrame(from: selectionDragStart, to: selectionDragCurrent))
                         .allowsHitTesting(false)
@@ -144,6 +184,26 @@ struct CanvasSurface: View {
             width: abs(current.x - start.x),
             height: abs(current.y - start.y)
         )
+    }
+
+    private func registerTap(at location: CGPoint) {
+        let now = Date()
+        guard let lastTapLocation, let lastTapDate else {
+            self.lastTapLocation = location
+            self.lastTapDate = now
+            return
+        }
+
+        let elapsedTime = now.timeIntervalSince(lastTapDate)
+        let distance = hypot(location.x - lastTapLocation.x, location.y - lastTapLocation.y)
+        if elapsedTime <= 0.35, distance <= 24 {
+            onDoubleTap(location)
+            self.lastTapLocation = nil
+            self.lastTapDate = nil
+        } else {
+            self.lastTapLocation = location
+            self.lastTapDate = now
+        }
     }
 }
 

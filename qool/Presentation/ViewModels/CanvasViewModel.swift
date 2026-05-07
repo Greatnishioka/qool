@@ -8,6 +8,8 @@ final class CanvasViewModel: ObservableObject {
     @Published var selectedTool: CanvasTool = .select
     // 選択されている要素の ID の Set ( JS の Set と同様)。複数選択をサポートするために Set で管理する。
     @Published var selectedElementIDs: Set<CanvasElement.ID> = []
+    @Published var editingUnionElementID: CanvasElement.ID?
+    @Published var selectedUnionSourceID: CanvasElementSnapshot.ID?
     @Published var draftElement: CanvasElement?
 
     private var pathDraftPoints: [CGPoint] = []
@@ -70,9 +72,20 @@ final class CanvasViewModel: ObservableObject {
         selectedElementIDs.count >= 2
     }
 
+    var editingUnionSources: [CanvasElementSnapshot] {
+        guard let editingUnionElementID,
+              let element = memo.canvas.elements.first(where: { $0.id == editingUnionElementID }) else {
+            return []
+        }
+
+        return element.unionSourceElements
+    }
+
     // 選択をクリアする関数。全部削除。
     func clearSelection() {
         selectedElementIDs.removeAll()
+        editingUnionElementID = nil
+        selectedUnionSourceID = nil
     }
 
     // ツールを選択する関数。選択ツール以外が選ばれた場合、選択状態をクリアする。
@@ -141,10 +154,14 @@ final class CanvasViewModel: ObservableObject {
     // 要素を選択する関数。指定されたIDの要素を選択状態にする。
     func selectElement(id: CanvasElement.ID) {
         selectedTool = .select
+        editingUnionElementID = nil
+        selectedUnionSourceID = nil
         selectedElementIDs = [id]
     }
 
     func selectElements(in selectionFrame: CGRect) {
+        editingUnionElementID = nil
+        selectedUnionSourceID = nil
         selectedElementIDs = selectionService.elementIDs(in: selectionFrame, elements: memo.canvas.elements)
     }
 
@@ -152,6 +169,12 @@ final class CanvasViewModel: ObservableObject {
     func elementID(at point: CGPoint) -> CanvasElement.ID? {
 
         selectionService.elementID(at: point, in: memo.canvas.elements)
+    }
+
+    func unionSourceID(at point: CGPoint) -> CanvasElementSnapshot.ID? {
+        editingUnionSources.reversed().first { source in
+            source.frame.insetBy(dx: -6, dy: -6).contains(point)
+        }?.id
     }
 
     
@@ -162,6 +185,8 @@ final class CanvasViewModel: ObservableObject {
 
         memo.canvas.elements.append(element)
         selectedTool = .select
+        editingUnionElementID = nil
+        selectedUnionSourceID = nil
         // 追加した要素を選択状態にする。
         selectedElementIDs = [element.id]
         save()
@@ -172,12 +197,41 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
+        let originalFrames = Dictionary(
+            uniqueKeysWithValues: memo.canvas.elements
+                .filter { selectedElementIDs.contains($0.id) }
+                .map { ($0.id, $0.frame) }
+        )
+
         editingUseCases.moveElements(
             in: &memo.canvas.elements,
             selectedIDs: selectedElementIDs,
             by: translation,
             canvasSize: canvasSize
         )
+
+        for index in memo.canvas.elements.indices where selectedElementIDs.contains(memo.canvas.elements[index].id) {
+            let element = memo.canvas.elements[index]
+            guard !element.unionSourceElements.isEmpty,
+                  let originalFrame = originalFrames[element.id] else {
+                continue
+            }
+
+            let actualTranslation = CGSize(
+                width: element.frame.minX - originalFrame.minX,
+                height: element.frame.minY - originalFrame.minY
+            )
+
+            memo.canvas.elements[index].unionSourceElements = element.unionSourceElements.map { sourceElement in
+                var sourceElement = sourceElement
+                sourceElement.frame = sourceElement.frame.offsetBy(
+                    dx: actualTranslation.width,
+                    dy: actualTranslation.height
+                )
+                return sourceElement
+            }
+        }
+
         save()
     }
 
@@ -222,6 +276,8 @@ final class CanvasViewModel: ObservableObject {
 
         editingUseCases.deleteElements(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
         selectedElementIDs.removeAll()
+        editingUnionElementID = nil
+        selectedUnionSourceID = nil
         save()
     }
 
@@ -238,6 +294,57 @@ final class CanvasViewModel: ObservableObject {
         editingUseCases.deleteElements(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
         memo.canvas.elements.append(unionElement)
         selectedElementIDs = [unionElement.id]
+        editingUnionElementID = nil
+        selectedUnionSourceID = nil
+        save()
+    }
+
+    func beginEditingUnionElement(at point: CGPoint) {
+        guard selectedTool == .select,
+              let elementID = elementID(at: point),
+              let element = memo.canvas.elements.first(where: { $0.id == elementID }),
+              !element.unionSourceElements.isEmpty else {
+            return
+        }
+
+        editingUnionElementID = element.id
+        selectedElementIDs = [element.id]
+        selectedUnionSourceID = unionSourceID(at: point) ?? element.unionSourceElements.last?.id
+    }
+
+    func selectUnionSource(id: CanvasElementSnapshot.ID) {
+        guard editingUnionSources.contains(where: { $0.id == id }) else {
+            return
+        }
+
+        selectedUnionSourceID = id
+    }
+
+    func moveUnionSource(id: CanvasElementSnapshot.ID, by translation: CGSize, canvasSize: CGSize) {
+        guard let editingUnionElementID,
+              let elementIndex = memo.canvas.elements.firstIndex(where: { $0.id == editingUnionElementID }),
+              let sourceIndex = memo.canvas.elements[elementIndex].unionSourceElements.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        var sourceElements = memo.canvas.elements[elementIndex].unionSourceElements
+        sourceElements[sourceIndex].frame = clamped(
+            sourceElements[sourceIndex].frame.offsetBy(dx: translation.width, dy: translation.height),
+            in: canvasSize
+        )
+
+        let currentUnionElement = memo.canvas.elements[elementIndex]
+        guard let updatedUnionElement = unionUseCase.unionElement(
+            from: sourceElements.map(\.element),
+            id: currentUnionElement.id,
+            styleSource: currentUnionElement
+        ) else {
+            return
+        }
+
+        memo.canvas.elements[elementIndex] = updatedUnionElement
+        selectedElementIDs = [updatedUnionElement.id]
+        selectedUnionSourceID = id
         save()
     }
 
@@ -282,6 +389,15 @@ final class CanvasViewModel: ObservableObject {
         CGPoint(
             x: min(max(point.x, 0), size.width),
             y: min(max(point.y, 0), size.height)
+        )
+    }
+
+    private func clamped(_ frame: CGRect, in size: CGSize) -> CGRect {
+        CGRect(
+            x: min(max(frame.minX, 0), max(0, size.width - frame.width)),
+            y: min(max(frame.minY, 0), max(0, size.height - frame.height)),
+            width: frame.width,
+            height: frame.height
         )
     }
 

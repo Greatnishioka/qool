@@ -5,7 +5,11 @@ import iOverlay
 struct CanvasUnionUseCase {
     nonisolated init() {}
 
-    func unionElement(from elements: [CanvasElement]) -> CanvasElement? {
+    func unionElement(
+        from elements: [CanvasElement],
+        id: UUID = UUID(),
+        styleSource: CanvasElement? = nil
+    ) -> CanvasElement? {
         let unionableElements = elements.filter(isUnionable)
         guard unionableElements.count >= 2 else {
             return nil
@@ -33,7 +37,12 @@ struct CanvasUnionUseCase {
             .extractShapes(overlayRule: .union)
             .filter { !$0.isEmpty }
 
-        return makeElement(from: shapes, sourceElements: unionableElements)
+        return makeElement(
+            from: shapes,
+            id: id,
+            sourceElements: unionableElements,
+            styleSource: styleSource
+        )
     }
 
     private func isUnionable(_ element: CanvasElement) -> Bool {
@@ -162,7 +171,12 @@ struct CanvasUnionUseCase {
         hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y)
     }
 
-    private func makeElement(from shapes: [[[CGPoint]]], sourceElements: [CanvasElement]) -> CanvasElement? {
+    private func makeElement(
+        from shapes: [[[CGPoint]]],
+        id: UUID,
+        sourceElements: [CanvasElement],
+        styleSource: CanvasElement?
+    ) -> CanvasElement? {
         let allPoints = shapes.flatMap { shape in shape.flatMap(\.self) }
         guard let firstPoint = allPoints.first else {
             return nil
@@ -191,8 +205,9 @@ struct CanvasUnionUseCase {
             return nil
         }
 
-        let styleSource = sourceElements.first
+        let styleSource = styleSource ?? sourceElements.first
         return CanvasElement(
+            id: id,
             kind: .path,
             frame: safeFrame,
             fillColor: styleSource?.fillColor ?? .paper,
@@ -200,7 +215,8 @@ struct CanvasUnionUseCase {
             strokeWidth: styleSource?.strokeWidth ?? 2,
             showsStroke: styleSource?.showsStroke ?? true,
             pathContours: contours,
-            isClosedPath: true
+            isClosedPath: true,
+            unionSourceElements: sourceElements.map(CanvasElementSnapshot.init)
         )
     }
 

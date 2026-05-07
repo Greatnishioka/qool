@@ -26,15 +26,21 @@ struct CanvasView: View {
                         elements: viewModel.memo.canvas.elements,
                         draftElement: viewModel.draftElement,
                         selectedElementIDs: viewModel.selectedElementIDs,
+                        unionSourceElements: viewModel.editingUnionSources,
+                        selectedUnionSourceID: viewModel.selectedUnionSourceID,
                         selectedTool: viewModel.selectedTool,
                         onClearSelection: viewModel.clearSelection,
                         onHitTestElement: viewModel.elementID,
+                        onHitTestUnionSource: viewModel.unionSourceID,
                         onSelectElements: viewModel.selectElements,
                         onUpdateDraft: viewModel.updateDraft,
                         onCommitDraft: viewModel.commitDraft,
                         onPlacePathPoint: viewModel.placePathPoint,
                         onSelectElement: viewModel.selectElement,
-                        onMoveSelectedElement: viewModel.moveSelectedElement
+                        onMoveSelectedElement: viewModel.moveSelectedElement,
+                        onDoubleTap: viewModel.beginEditingUnionElement,
+                        onSelectUnionSource: viewModel.selectUnionSource,
+                        onMoveUnionSource: viewModel.moveUnionSource
                     )
                     .padding(.leading, 16)
                     .padding(.top, 16)

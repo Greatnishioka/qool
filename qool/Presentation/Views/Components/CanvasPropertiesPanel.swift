@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct CanvasPropertiesPanel: View {
     @ObservedObject var viewModel: CanvasViewModel
@@ -91,7 +92,6 @@ struct CanvasPropertiesPanel: View {
                 .font(.subheadline.weight(.semibold))
             ColorSwatchPicker(
                 selectedColor: element.fillColor,
-                colors: CanvasColor.fillOptions,
                 onSelect: viewModel.updateFillColor
             )
         }
@@ -108,7 +108,6 @@ struct CanvasPropertiesPanel: View {
             if element.showsStroke {
                 ColorSwatchPicker(
                     selectedColor: element.strokeColor,
-                    colors: CanvasColor.strokeOptions,
                     onSelect: viewModel.updateStrokeColor
                 )
 
@@ -140,34 +139,86 @@ struct CanvasPropertiesPanel: View {
 
 private struct ColorSwatchPicker: View {
     let selectedColor: CanvasColor
-    let colors: [CanvasColor]
+    let onSelect: (CanvasColor) -> Void
+
+    @State private var isCustomPickerPresented = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                isCustomPickerPresented = true
+            } label: {
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(selectedColor.swatchFill)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(.separator), lineWidth: 1)
+                        }
+                        .frame(width: 34, height: 34)
+
+                    Text(selectedColor.hexLabel)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Image(systemName: "eyedropper.halffull")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(.tertiarySystemGroupedBackground))
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("カスタムカラー")
+            .popover(isPresented: $isCustomPickerPresented, arrowEdge: .trailing) {
+                CustomColorPopover(
+                    selectedColor: selectedColor,
+                    onSelect: onSelect
+                )
+                .frame(width: 240)
+                .presentationCompactAdaptation(.popover)
+            }
+        }
+    }
+}
+
+private struct CustomColorPopover: View {
+    let selectedColor: CanvasColor
     let onSelect: (CanvasColor) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(colors) { color in
-                Button {
-                    onSelect(color)
-                } label: {
-                    Circle()
-                        .fill(color.swatchFill)
-                        .overlay {
-                            Circle()
-                                .stroke(Color(.separator), lineWidth: color == .clear ? 1 : 0)
-                        }
-                        .overlay {
-                            if selectedColor == color {
-                                Circle()
-                                    .stroke(Color.accentColor, lineWidth: 3)
-                                    .padding(-4)
-                            }
-                        }
-                        .frame(width: 28, height: 28)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("カラー")
+                .font(.subheadline.weight(.semibold))
+
+            RoundedRectangle(cornerRadius: 8)
+                .fill(selectedColor.swatchFill)
+                .frame(height: 52)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(.separator), lineWidth: 1)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(color.displayName)
-            }
+
+            ColorPicker(
+                "色を選択",
+                selection: Binding(
+                    get: { selectedColor.swiftUIColor },
+                    set: { onSelect(.custom(from: $0)) }
+                ),
+                supportsOpacity: true
+            )
+
+            Text(selectedColor.hexLabel)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
         }
+        .padding(14)
     }
 }
 
@@ -189,10 +240,59 @@ private extension CanvasElementKind {
 }
 
 private extension CanvasColor {
-    static let fillOptions: [CanvasColor] = [.paper, .mint, .coral, .sky, .clear]
-    static let strokeOptions: [CanvasColor] = [.ink, .coral, .sky, .mint]
-
     var swatchFill: Color {
         self == .clear ? Color.white : swiftUIColor
+    }
+
+    var hexLabel: String {
+        let components = rgbaComponents
+        return String(
+            format: "#%02X%02X%02X  %.0f%%",
+            Int(components.red * 255),
+            Int(components.green * 255),
+            Int(components.blue * 255),
+            components.opacity * 100
+        )
+    }
+
+    static func custom(from color: Color) -> CanvasColor {
+        let components = color.rgbaComponents
+        return .custom(
+            red: components.red,
+            green: components.green,
+            blue: components.blue,
+            opacity: components.opacity
+        )
+    }
+
+    private var rgbaComponents: (red: Double, green: Double, blue: Double, opacity: Double) {
+        swiftUIColor.rgbaComponents
+    }
+}
+
+private extension Color {
+    var rgbaComponents: (red: Double, green: Double, blue: Double, opacity: Double) {
+        let uiColor = UIColor(self)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return (0, 0, 0, 1)
+        }
+
+        return (
+            Double(red).clampedColorComponent,
+            Double(green).clampedColorComponent,
+            Double(blue).clampedColorComponent,
+            Double(alpha).clampedColorComponent
+        )
+    }
+}
+
+private extension Double {
+    var clampedColorComponent: Double {
+        min(max(self, 0), 1)
     }
 }
