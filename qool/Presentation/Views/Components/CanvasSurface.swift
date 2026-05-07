@@ -174,7 +174,11 @@ private struct CanvasElementView: View {
                 .fill(element.fillColor.swiftUIColor)
                 .overlay(strokeOverlay(Rectangle()))
         case .path:
-            if element.pathPoints.isEmpty {
+            if !element.pathContours.isEmpty {
+                MultiContourPathShape(contours: element.pathContours)
+                    .fill(element.fillColor.swiftUIColor.opacity(0.75), style: FillStyle(eoFill: true))
+                    .overlay(strokeOverlay(MultiContourPathShape(contours: element.pathContours)))
+            } else if element.pathPoints.isEmpty {
                 LegacyPathShape()
                     .fill(element.fillColor.swiftUIColor.opacity(0.75))
                     .overlay(strokeOverlay(LegacyPathShape()))
@@ -358,6 +362,37 @@ private struct BezierPathShape: Shape {
         )
         path.addQuadCurve(to: midpoint, control: lastPoint)
         path.addQuadCurve(to: firstPoint, control: firstPoint)
+    }
+}
+
+private struct MultiContourPathShape: Shape {
+    let contours: [CanvasPathContour]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+
+        for contour in contours where !contour.points.isEmpty {
+            let cgPoints = contour.points.map { point in
+                CGPoint(
+                    x: rect.minX + rect.width * CGFloat(point.x),
+                    y: rect.minY + rect.height * CGFloat(point.y)
+                )
+            }
+
+            guard let firstPoint = cgPoints.first else {
+                continue
+            }
+
+            path.move(to: firstPoint)
+            for point in cgPoints.dropFirst() {
+                path.addLine(to: point)
+            }
+            if contour.isClosed {
+                path.closeSubpath()
+            }
+        }
+
+        return path
     }
 }
 

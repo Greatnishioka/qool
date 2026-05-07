@@ -15,6 +15,7 @@ final class CanvasViewModel: ObservableObject {
     private let selectionService: CanvasSelectionService
     private let draftElementBuilder: CanvasDraftElementBuilder
     private let editingUseCases: CanvasEditingUseCases
+    private let unionUseCase: CanvasUnionUseCase
     private let onSave: (Memo) -> Void
 
     init(
@@ -23,6 +24,7 @@ final class CanvasViewModel: ObservableObject {
         selectionService: CanvasSelectionService = CanvasSelectionService(),
         draftElementBuilder: CanvasDraftElementBuilder = CanvasDraftElementBuilder(),
         editingUseCases: CanvasEditingUseCases = CanvasEditingUseCases(),
+        unionUseCase: CanvasUnionUseCase = CanvasUnionUseCase(),
         onSave: @escaping (Memo) -> Void
     ) {
         self.memo = memo
@@ -30,6 +32,7 @@ final class CanvasViewModel: ObservableObject {
         self.selectionService = selectionService
         self.draftElementBuilder = draftElementBuilder
         self.editingUseCases = editingUseCases
+        self.unionUseCase = unionUseCase
         self.onSave = onSave
     }
 
@@ -61,6 +64,10 @@ final class CanvasViewModel: ObservableObject {
     // 選択されている要素の配列。キャンバスないから探し、複数選択をサポートするために配列で返す。
     var selectedElements: [CanvasElement] {
         selectionService.selectedElements(in: memo.canvas.elements, selectedIDs: selectedElementIDs)
+    }
+
+    var canUnionSelection: Bool {
+        selectedElementIDs.count >= 2
     }
 
     // 選択をクリアする関数。全部削除。
@@ -215,6 +222,22 @@ final class CanvasViewModel: ObservableObject {
 
         editingUseCases.deleteElements(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
         selectedElementIDs.removeAll()
+        save()
+    }
+
+    // 選択されている要素を結合する関数。複数選択されている要素を一つの要素にまとめる。
+    func unionSelectedElements() {
+        guard canUnionSelection else {
+            return
+        }
+
+        guard let unionElement = unionUseCase.unionElement(from: selectedElements) else {
+            return
+        }
+
+        editingUseCases.deleteElements(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
+        memo.canvas.elements.append(unionElement)
+        selectedElementIDs = [unionElement.id]
         save()
     }
 

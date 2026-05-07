@@ -20,6 +20,7 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
     var text: String
     var rotationAngleDegrees: Double
     var pathPoints: [NormalizedPoint]
+    var pathContours: [CanvasPathContour]
     var isClosedPath: Bool
 
     init(
@@ -33,6 +34,7 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         text: String = "テキスト",
         rotationAngleDegrees: Double = 0,
         pathPoints: [NormalizedPoint] = [],
+        pathContours: [CanvasPathContour] = [],
         isClosedPath: Bool = true
     ) {
         self.id = id
@@ -45,7 +47,18 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         self.text = text
         self.rotationAngleDegrees = rotationAngleDegrees
         self.pathPoints = pathPoints
+        self.pathContours = pathContours
         self.isClosedPath = isClosedPath
+    }
+}
+
+struct CanvasPathContour: Equatable, Hashable {
+    var points: [NormalizedPoint]
+    var isClosed: Bool
+
+    init(points: [NormalizedPoint], isClosed: Bool = true) {
+        self.points = points
+        self.isClosed = isClosed
     }
 }
 

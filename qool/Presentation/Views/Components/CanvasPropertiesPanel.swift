@@ -42,6 +42,15 @@ struct CanvasPropertiesPanel: View {
                     .foregroundStyle(.secondary)
             }
 
+            Button {
+                viewModel.unionSelectedElements()
+            } label: {
+                Label("結合", systemImage: "link")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!viewModel.canUnionSelection)
+
             Button(role: .destructive) {
                 viewModel.deleteSelectedElement()
             } label: {
