@@ -3,10 +3,11 @@ import SwiftUI
 struct CanvasSurface: View {
     let elements: [CanvasElement]
     let draftElement: CanvasElement?
-    let selectedElementID: CanvasElement.ID?
+    let selectedElementIDs: Set<CanvasElement.ID>
     let selectedTool: CanvasTool
     let onClearSelection: () -> Void
     let onHitTestElement: (CGPoint) -> CanvasElement.ID?
+    let onSelectElements: (CGRect) -> Void
     let onUpdateDraft: (CGPoint, CGPoint, CGSize) -> Void
     let onCommitDraft: (CGPoint, CGPoint, CGSize) -> Void
     let onPlacePathPoint: (CGPoint, CGSize) -> Void
@@ -14,7 +15,9 @@ struct CanvasSurface: View {
     let onMoveSelectedElement: (CGSize, CGSize) -> Void
 
     @State private var activeDragTranslation: CGSize = .zero
-    @State private var activeDragElementID: CanvasElement.ID?
+    @State private var activeDragElementIDs: Set<CanvasElement.ID> = []
+    @State private var selectionDragStart: CGPoint?
+    @State private var selectionDragCurrent: CGPoint?
 
     var body: some View {
         GeometryReader { proxy in
@@ -30,14 +33,26 @@ struct CanvasSurface: View {
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
                                 if selectedTool == .select {
-                                    if activeDragElementID == nil {
-                                        activeDragElementID = onHitTestElement(value.startLocation)
-                                        if let activeDragElementID {
-                                            onSelectElement(activeDragElementID)
+                                    // ドラッグ開始時に、ヒットテストを行い、要素がヒットした場合はその要素を選択状態にする。複数選択されている場合は、ヒットした要素が選択されているかどうかで、ドラッグの対象を切り替える。どの要素もヒットしなかった場合は、選択用のドラッグとして扱う。
+                                    if activeDragElementIDs.isEmpty, selectionDragStart == nil {
+                                        if let hitElementID = onHitTestElement(value.startLocation) {
+                                            if selectedElementIDs.contains(hitElementID) {
+                                                activeDragElementIDs = selectedElementIDs
+                                            } else {
+                                                onSelectElement(hitElementID)
+                                                activeDragElementIDs = [hitElementID]
+                                            }
+                                        } else {
+                                            selectionDragStart = value.startLocation
+                                            selectionDragCurrent = value.location
                                         }
                                     }
 
-                                    activeDragTranslation = activeDragElementID == nil ? .zero : value.translation
+                                    if activeDragElementIDs.isEmpty {
+                                        selectionDragCurrent = value.location
+                                    } else {
+                                        activeDragTranslation = value.translation
+                                    }
                                     return
                                 }
 
@@ -50,18 +65,33 @@ struct CanvasSurface: View {
                             .onEnded { value in
                                 if selectedTool == .select {
                                     defer {
-                                        activeDragElementID = nil
+                                        activeDragElementIDs.removeAll()
                                         activeDragTranslation = .zero
+                                        selectionDragStart = nil
+                                        selectionDragCurrent = nil
                                     }
 
-                                    guard let activeDragElementID else {
+                                    if !activeDragElementIDs.isEmpty {
+                                        if activeDragElementIDs.count == 1, let activeDragElementID = activeDragElementIDs.first {
+                                            onSelectElement(activeDragElementID)
+                                        }
+
+                                        if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
+                                            onMoveSelectedElement(value.translation, proxy.size)
+                                        }
+                                        return
+                                    }
+
+                                    guard let selectionDragStart else {
                                         onClearSelection()
                                         return
                                     }
 
-                                    onSelectElement(activeDragElementID)
-                                    if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
-                                        onMoveSelectedElement(value.translation, proxy.size)
+                                    let selectionFrame = normalizedFrame(from: selectionDragStart, to: value.location)
+                                    if selectionFrame.width >= 4 || selectionFrame.height >= 4 {
+                                        onSelectElements(selectionFrame)
+                                    } else {
+                                        onClearSelection()
                                     }
                                     return
                                 }
@@ -78,14 +108,19 @@ struct CanvasSurface: View {
                     )
 
                 ForEach(elements) { element in
-                    let isSelected = selectedElementID == element.id
+                    let isSelected = selectedElementIDs.contains(element.id)
                     CanvasElementView(
                         element: element,
                         isSelected: isSelected,
                         selectedTool: selectedTool
                     )
-                    .offset(activeDragElementID == element.id ? activeDragTranslation : .zero)
+                    .offset(activeDragElementIDs.contains(element.id) ? activeDragTranslation : .zero)
                     .allowsHitTesting(false)
+                }
+
+                if let selectionDragStart, let selectionDragCurrent {
+                    SelectionMarquee(frame: normalizedFrame(from: selectionDragStart, to: selectionDragCurrent))
+                        .allowsHitTesting(false)
                 }
 
                 if let draftElement {
@@ -100,6 +135,15 @@ struct CanvasSurface: View {
             }
             .clipShape(Rectangle())
         }
+    }
+
+    private func normalizedFrame(from start: CGPoint, to current: CGPoint) -> CGRect {
+        CGRect(
+            x: min(start.x, current.x),
+            y: min(start.y, current.y),
+            width: abs(current.x - start.x),
+            height: abs(current.y - start.y)
+        )
     }
 }
 
@@ -189,6 +233,21 @@ private struct SelectionOutline: View {
             .frame(width: 8, height: 8)
             .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1.5))
             .offset(x: 0, y: 0)
+    }
+}
+
+private struct SelectionMarquee: View {
+    let frame: CGRect
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.accentColor.opacity(0.10))
+            .overlay {
+                Rectangle()
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            }
+            .frame(width: frame.width, height: frame.height)
+            .position(x: frame.midX, y: frame.midY)
     }
 }
 

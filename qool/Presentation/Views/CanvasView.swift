@@ -25,10 +25,11 @@ struct CanvasView: View {
                     CanvasSurface(
                         elements: viewModel.memo.canvas.elements,
                         draftElement: viewModel.draftElement,
-                        selectedElementID: viewModel.selectedElementID,
+                        selectedElementIDs: viewModel.selectedElementIDs,
                         selectedTool: viewModel.selectedTool,
                         onClearSelection: viewModel.clearSelection,
                         onHitTestElement: viewModel.elementID,
+                        onSelectElements: viewModel.selectElements,
                         onUpdateDraft: viewModel.updateDraft,
                         onCommitDraft: viewModel.commitDraft,
                         onPlacePathPoint: viewModel.placePathPoint,

@@ -6,7 +6,8 @@ import Foundation
 final class CanvasViewModel: ObservableObject {
     @Published private(set) var memo: Memo
     @Published var selectedTool: CanvasTool = .select
-    @Published var selectedElementID: CanvasElement.ID?
+    // 選択されている要素の ID の Set ( JS の Set と同様)。複数選択をサポートするために Set で管理する。
+    @Published var selectedElementIDs: Set<CanvasElement.ID> = []
     @Published var draftElement: CanvasElement?
 
     private var pathDraftPoints: [CGPoint] = []
@@ -24,7 +25,8 @@ final class CanvasViewModel: ObservableObject {
     }
 
     var selectedElement: CanvasElement? {
-        guard let selectedElementID else {
+        guard selectedElementIDs.count == 1,
+              let selectedElementID = selectedElementIDs.first else {
             return nil
         }
 
@@ -32,10 +34,53 @@ final class CanvasViewModel: ObservableObject {
         // ここでは、selectedElementID に対応する要素を見つけて最初の一つを返す。
         return memo.canvas.elements.first { $0.id == selectedElementID }
     }
+    
+    // 選択されている要素。
+    // 複数選択時は nil を返す。
+    var selectedElementID: CanvasElement.ID? {
+        guard selectedElementIDs.count == 1 else {
+            return nil
+        }
 
-    // 選択をクリアする関数。
+        return selectedElementIDs.first
+    }
+
+    // 選択されている要素のカウント。
+    var selectedElementsCount: Int {
+        selectedElementIDs.count
+    }
+
+    // 要素が選択されているかどうか。
+    var hasSelection: Bool {
+        !selectedElementIDs.isEmpty
+    }
+
+    // 洗濯用の枠を表示するために、選択されている要素のフレームを計算する。
+    var selectedElementsFrame: CGRect? {
+
+        // 選択中のIDに対応する要素のフレームを取得し、それらを結合して一つのフレームを作成する。
+        let frames = memo.canvas.elements
+            .filter { selectedElementIDs.contains($0.id) }
+            .map(\.frame)
+
+        // いまだに書き方に慣れないが、frames.first を取り出して、それが nil であれば nil を返す。そうでなければ、frames の残りのフレームと結合して一つのフレームを作成して返す。
+        guard let firstFrame = frames.first else {
+            return nil
+        }
+
+        return frames.dropFirst().reduce(firstFrame) { partialResult, frame in
+            partialResult.union(frame)
+        }
+    }
+
+    // 選択されている要素の配列。キャンバスないから探し、複数選択をサポートするために配列で返す。
+    var selectedElements: [CanvasElement] {
+        memo.canvas.elements.filter { selectedElementIDs.contains($0.id) }
+    }
+
+    // 選択をクリアする関数。全部削除。
     func clearSelection() {
-        selectedElementID = nil
+        selectedElementIDs.removeAll()
     }
 
     // ツールを選択する関数。選択ツール以外が選ばれた場合、選択状態をクリアする。
@@ -96,7 +141,7 @@ final class CanvasViewModel: ObservableObject {
         // ドラフト要素をキャンバスに追加し、選択ツールに切り替えて、その要素を選択状態にする。
         memo.canvas.elements.append(draftElement)
         selectedTool = .select
-        selectedElementID = draftElement.id
+        selectedElementIDs = [draftElement.id]
         self.draftElement = nil
         save()
     }
@@ -104,7 +149,17 @@ final class CanvasViewModel: ObservableObject {
     // 要素を選択する関数。指定されたIDの要素を選択状態にする。
     func selectElement(id: CanvasElement.ID) {
         selectedTool = .select
-        selectedElementID = id
+        selectedElementIDs = [id]
+    }
+
+    func selectElements(in selectionFrame: CGRect) {
+        let selectedIDs = memo.canvas.elements
+            .filter { element in
+                selectionFrame.intersects(hitFrame(for: element))
+            }
+            .map(\.id)
+
+        selectedElementIDs = Set(selectedIDs)
     }
 
     // 指定された点にある要素のIDを返す関数。
@@ -124,18 +179,29 @@ final class CanvasViewModel: ObservableObject {
 
         memo.canvas.elements.append(element)
         selectedTool = .select
-        selectedElementID = element.id
+        // 追加した要素を選択状態にする。
+        selectedElementIDs = [element.id]
         save()
     }
 
     func moveSelectedElement(by translation: CGSize, canvasSize: CGSize) {
-        guard let selectedElementID else {
+        guard !selectedElementIDs.isEmpty else {
             return
         }
 
-        updateElement(id: selectedElementID) { element in
-            let proposed = element.frame.offsetBy(dx: translation.width, dy: translation.height)
-            element.frame = clamped(proposed, in: canvasSize)
+        updateSelectedElements { element in
+            element.frame = element.frame.offsetBy(dx: translation.width, dy: translation.height)
+        }
+
+        if let selectedElementsFrame, !CGRect(origin: .zero, size: canvasSize).contains(selectedElementsFrame) {
+            let clampedFrame = clamped(selectedElementsFrame, in: canvasSize)
+            let correction = CGSize(
+                width: clampedFrame.minX - selectedElementsFrame.minX,
+                height: clampedFrame.minY - selectedElementsFrame.minY
+            )
+            updateSelectedElements { element in
+                element.frame = element.frame.offsetBy(dx: correction.width, dy: correction.height)
+            }
         }
     }
 
@@ -174,12 +240,12 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func deleteSelectedElement() {
-        guard let selectedElementID else {
+        guard !selectedElementIDs.isEmpty else {
             return
         }
 
-        memo.canvas.elements.removeAll { $0.id == selectedElementID }
-        self.selectedElementID = nil
+        memo.canvas.elements.removeAll { selectedElementIDs.contains($0.id) }
+        selectedElementIDs.removeAll()
         save()
     }
 
@@ -189,6 +255,19 @@ final class CanvasViewModel: ObservableObject {
         }
 
         updateElement(id: selectedElementID, mutation)
+    }
+
+    // 複数選択されている要素すべてに対して、同じ変更を適用する関数。
+    private func updateSelectedElements(_ mutation: (inout CanvasElement) -> Void) {
+        let ids = selectedElementIDs
+        guard !ids.isEmpty else {
+            return
+        }
+
+        for index in memo.canvas.elements.indices where ids.contains(memo.canvas.elements[index].id) {
+            mutation(&memo.canvas.elements[index])
+        }
+        save()
     }
 
     private func updateElement(id: CanvasElement.ID, _ mutation: (inout CanvasElement) -> Void) {
@@ -260,7 +339,8 @@ final class CanvasViewModel: ObservableObject {
 
         memo.canvas.elements.append(pathElement)
         selectedTool = .select
-        selectedElementID = pathElement.id
+        // 追加した要素を選択状態にする。
+        selectedElementIDs = [pathElement.id]
         clearPathDraft()
         save()
     }

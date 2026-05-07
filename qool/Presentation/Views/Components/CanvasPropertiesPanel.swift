@@ -10,6 +10,8 @@ struct CanvasPropertiesPanel: View {
 
             if let element = viewModel.selectedElement {
                 propertyContent(for: element)
+            } else if viewModel.hasSelection {
+                multipleSelectionContent
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Image(systemName: "cursorarrow.click")
@@ -27,6 +29,26 @@ struct CanvasPropertiesPanel: View {
         .background {
             Rectangle()
                 .fill(Color(.secondarySystemGroupedBackground))
+        }
+    }
+
+    private var multipleSelectionContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("\(viewModel.selectedElementsCount)個のオブジェクト")
+                    .font(.subheadline.weight(.semibold))
+                Text("複数選択中")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(role: .destructive) {
+                viewModel.deleteSelectedElement()
+            } label: {
+                Label("まとめて削除", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         }
     }
 
