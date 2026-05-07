@@ -72,6 +72,10 @@ struct CanvasPropertiesPanel: View {
                 .foregroundStyle(.secondary)
         }
 
+        if let sourceElement = viewModel.selectedUnionSource {
+            unionSourceContent(for: sourceElement)
+        }
+
         if element.kind == .text {
             VStack(alignment: .leading, spacing: 8) {
                 Text("テキスト")
@@ -84,6 +88,21 @@ struct CanvasPropertiesPanel: View {
                     )
                 )
                 .textFieldStyle(.roundedBorder)
+            }
+        }
+
+        if element.kind == .rectangle {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("角丸 \(Int(element.cornerRadius))")
+                    .font(.subheadline.weight(.semibold))
+                Slider(
+                    value: Binding(
+                        get: { Double(viewModel.selectedElement?.cornerRadius ?? 0) },
+                        set: { viewModel.updateCornerRadius(CGFloat($0)) }
+                    ),
+                    in: 0...Double(max(0, min(element.frame.width, element.frame.height) / 2)),
+                    step: 1
+                )
             }
         }
 
@@ -127,6 +146,16 @@ struct CanvasPropertiesPanel: View {
             }
         }
 
+        if element.unionSourceElements.isEmpty == false {
+            Button {
+                viewModel.separateSelectedElement()
+            } label: {
+                Label("分割", systemImage: "rectangle.on.rectangle.slash")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+
         Button(role: .destructive) {
             viewModel.deleteSelectedElement()
         } label: {
@@ -134,6 +163,32 @@ struct CanvasPropertiesPanel: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+    }
+
+    @ViewBuilder
+    private func unionSourceContent(for sourceElement: CanvasElementSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("構成元")
+                .font(.subheadline.weight(.semibold))
+            Text(sourceElement.kind.displayName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        if sourceElement.kind == .rectangle {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("構成元の角丸 \(Int(sourceElement.cornerRadius))")
+                    .font(.subheadline.weight(.semibold))
+                Slider(
+                    value: Binding(
+                        get: { Double(viewModel.selectedUnionSource?.cornerRadius ?? 0) },
+                        set: { viewModel.updateSelectedUnionSourceCornerRadius(CGFloat($0)) }
+                    ),
+                    in: 0...Double(max(0, min(sourceElement.frame.width, sourceElement.frame.height) / 2)),
+                    step: 1
+                )
+            }
+        }
     }
 }
 

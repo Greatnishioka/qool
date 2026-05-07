@@ -59,12 +59,7 @@ struct CanvasUnionUseCase {
     private func polygonPaths(for element: CanvasElement) -> [[CGPoint]] {
         switch element.kind {
         case .rectangle:
-            return [[
-                CGPoint(x: element.frame.minX, y: element.frame.minY),
-                CGPoint(x: element.frame.maxX, y: element.frame.minY),
-                CGPoint(x: element.frame.maxX, y: element.frame.maxY),
-                CGPoint(x: element.frame.minX, y: element.frame.maxY)
-            ]]
+            return [rectanglePathPoints(for: element)]
         case .path:
             if !element.pathContours.isEmpty {
                 return element.pathContours
@@ -79,6 +74,80 @@ struct CanvasUnionUseCase {
                 .filter { $0.count >= 3 }
         case .line, .text, .imageCutout:
             return []
+        }
+    }
+
+    private func rectanglePathPoints(for element: CanvasElement) -> [CGPoint] {
+        let frame = element.frame
+        let radius = min(max(element.cornerRadius, 0), min(frame.width, frame.height) / 2)
+        guard radius > 0 else {
+            return [
+                CGPoint(x: frame.minX, y: frame.minY),
+                CGPoint(x: frame.maxX, y: frame.minY),
+                CGPoint(x: frame.maxX, y: frame.maxY),
+                CGPoint(x: frame.minX, y: frame.maxY)
+            ]
+        }
+
+        let segmentCount = max(6, min(16, Int(radius / 3)))
+        var points: [CGPoint] = []
+        points.reserveCapacity(segmentCount * 4)
+
+        appendArcPoints(
+            to: &points,
+            center: CGPoint(x: frame.maxX - radius, y: frame.minY + radius),
+            radius: radius,
+            startAngle: -.pi / 2,
+            endAngle: 0,
+            segmentCount: segmentCount
+        )
+        appendArcPoints(
+            to: &points,
+            center: CGPoint(x: frame.maxX - radius, y: frame.maxY - radius),
+            radius: radius,
+            startAngle: 0,
+            endAngle: .pi / 2,
+            segmentCount: segmentCount
+        )
+        appendArcPoints(
+            to: &points,
+            center: CGPoint(x: frame.minX + radius, y: frame.maxY - radius),
+            radius: radius,
+            startAngle: .pi / 2,
+            endAngle: .pi,
+            segmentCount: segmentCount
+        )
+        appendArcPoints(
+            to: &points,
+            center: CGPoint(x: frame.minX + radius, y: frame.minY + radius),
+            radius: radius,
+            startAngle: .pi,
+            endAngle: .pi * 1.5,
+            segmentCount: segmentCount
+        )
+
+        return points
+    }
+
+    private func appendArcPoints(
+        to points: inout [CGPoint],
+        center: CGPoint,
+        radius: CGFloat,
+        startAngle: CGFloat,
+        endAngle: CGFloat,
+        segmentCount: Int
+    ) {
+        for step in 0...segmentCount {
+            if !points.isEmpty, step == 0 {
+                continue
+            }
+
+            let progress = CGFloat(step) / CGFloat(segmentCount)
+            let angle = startAngle + (endAngle - startAngle) * progress
+            points.append(CGPoint(
+                x: center.x + cos(angle) * radius,
+                y: center.y + sin(angle) * radius
+            ))
         }
     }
 

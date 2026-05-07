@@ -81,6 +81,18 @@ final class CanvasViewModel: ObservableObject {
         return element.unionSourceElements
     }
 
+    var selectedUnionSource: CanvasElementSnapshot? {
+        guard let selectedUnionSourceID else {
+            return nil
+        }
+
+        return editingUnionSources.first { $0.id == selectedUnionSourceID }
+    }
+
+    var canSeparateSelectedElement: Bool {
+        selectedElement?.unionSourceElements.isEmpty == false
+    }
+
     // 選択をクリアする関数。全部削除。
     func clearSelection() {
         selectedElementIDs.removeAll()
@@ -263,6 +275,17 @@ final class CanvasViewModel: ObservableObject {
         }
     }
 
+    func updateCornerRadius(_ cornerRadius: CGFloat) {
+        updateSelectedElement { element in
+            guard element.kind == .rectangle else {
+                return
+            }
+
+            let maxRadius = max(0, min(element.frame.width, element.frame.height) / 2)
+            element.cornerRadius = min(max(cornerRadius, 0), maxRadius)
+        }
+    }
+
     func updateText(_ text: String) {
         updateSelectedElement { element in
             element.text = text
@@ -294,6 +317,25 @@ final class CanvasViewModel: ObservableObject {
         editingUseCases.deleteElements(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
         memo.canvas.elements.append(unionElement)
         selectedElementIDs = [unionElement.id]
+        editingUnionElementID = nil
+        selectedUnionSourceID = nil
+        save()
+    }
+
+    func separateSelectedElement() {
+        guard let selectedElementID,
+              let elementIndex = memo.canvas.elements.firstIndex(where: { $0.id == selectedElementID }) else {
+            return
+        }
+
+        let sourceElements = memo.canvas.elements[elementIndex].unionSourceElements.map(\.element)
+        guard !sourceElements.isEmpty else {
+            return
+        }
+
+        memo.canvas.elements.remove(at: elementIndex)
+        memo.canvas.elements.append(contentsOf: sourceElements)
+        selectedElementIDs = Set(sourceElements.map(\.id))
         editingUnionElementID = nil
         selectedUnionSourceID = nil
         save()
@@ -348,12 +390,55 @@ final class CanvasViewModel: ObservableObject {
         save()
     }
 
+    func updateSelectedUnionSourceCornerRadius(_ cornerRadius: CGFloat) {
+        guard let selectedUnionSourceID else {
+            return
+        }
+
+        updateUnionSource(id: selectedUnionSourceID) { sourceElement in
+            guard sourceElement.kind == .rectangle else {
+                return
+            }
+
+            let maxRadius = max(0, min(sourceElement.frame.width, sourceElement.frame.height) / 2)
+            sourceElement.cornerRadius = min(max(cornerRadius, 0), maxRadius)
+        }
+    }
+
     private func updateSelectedElement(_ mutation: (inout CanvasElement) -> Void) {
         guard let selectedElementID else {
             return
         }
 
         editingUseCases.updateElement(in: &memo.canvas.elements, id: selectedElementID, mutation)
+        save()
+    }
+
+    private func updateUnionSource(
+        id sourceID: CanvasElementSnapshot.ID,
+        mutation: (inout CanvasElementSnapshot) -> Void
+    ) {
+        guard let editingUnionElementID,
+              let elementIndex = memo.canvas.elements.firstIndex(where: { $0.id == editingUnionElementID }),
+              let sourceIndex = memo.canvas.elements[elementIndex].unionSourceElements.firstIndex(where: { $0.id == sourceID }) else {
+            return
+        }
+
+        var sourceElements = memo.canvas.elements[elementIndex].unionSourceElements
+        mutation(&sourceElements[sourceIndex])
+
+        let currentUnionElement = memo.canvas.elements[elementIndex]
+        guard let updatedUnionElement = unionUseCase.unionElement(
+            from: sourceElements.map(\.element),
+            id: currentUnionElement.id,
+            styleSource: currentUnionElement
+        ) else {
+            return
+        }
+
+        memo.canvas.elements[elementIndex] = updatedUnionElement
+        selectedElementIDs = [updatedUnionElement.id]
+        selectedUnionSourceID = sourceID
         save()
     }
 

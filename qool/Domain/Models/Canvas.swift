@@ -17,6 +17,7 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
     var strokeColor: CanvasColor
     var strokeWidth: CGFloat
     var showsStroke: Bool
+    var cornerRadius: CGFloat
     var text: String
     var rotationAngleDegrees: Double
     var pathPoints: [NormalizedPoint]
@@ -32,6 +33,7 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         strokeColor: CanvasColor = .ink,
         strokeWidth: CGFloat = 2,
         showsStroke: Bool = true,
+        cornerRadius: CGFloat = 0,
         text: String = "テキスト",
         rotationAngleDegrees: Double = 0,
         pathPoints: [NormalizedPoint] = [],
@@ -46,6 +48,7 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         self.strokeColor = strokeColor
         self.strokeWidth = strokeWidth
         self.showsStroke = showsStroke
+        self.cornerRadius = cornerRadius
         self.text = text
         self.rotationAngleDegrees = rotationAngleDegrees
         self.pathPoints = pathPoints
@@ -63,6 +66,7 @@ struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
     var strokeColor: CanvasColor
     var strokeWidth: CGFloat
     var showsStroke: Bool
+    var cornerRadius: CGFloat
     var text: String
     var rotationAngleDegrees: Double
     var pathPoints: [NormalizedPoint]
@@ -77,6 +81,7 @@ struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
         self.strokeColor = element.strokeColor
         self.strokeWidth = element.strokeWidth
         self.showsStroke = element.showsStroke
+        self.cornerRadius = element.cornerRadius
         self.text = element.text
         self.rotationAngleDegrees = element.rotationAngleDegrees
         self.pathPoints = element.pathPoints
@@ -93,6 +98,7 @@ struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
             strokeColor: strokeColor,
             strokeWidth: strokeWidth,
             showsStroke: showsStroke,
+            cornerRadius: cornerRadius,
             text: text,
             rotationAngleDegrees: rotationAngleDegrees,
             pathPoints: pathPoints,

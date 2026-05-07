@@ -230,9 +230,9 @@ private struct CanvasElementView: View {
     private var elementBody: some View {
         switch element.kind {
         case .rectangle:
-            Rectangle()
+            RoundedRectangle(cornerRadius: element.cornerRadius)
                 .fill(element.fillColor.swiftUIColor)
-                .overlay(strokeOverlay(Rectangle()))
+                .overlay(strokeOverlay(RoundedRectangle(cornerRadius: element.cornerRadius)))
         case .path:
             if !element.pathContours.isEmpty {
                 MultiContourPathShape(contours: element.pathContours)
