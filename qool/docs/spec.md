@@ -1,3 +1,7 @@
+> **この資料は最初期の画面仕様メモ（原典）です。**
+> 現在の詳細は [features/](features/README.md)、プロダクトとしての狙いは
+> [product/mvp.md](product/mvp.md) を参照してください。
+
 # 画面一覧
 
 - メモ一覧

@@ -17,10 +17,15 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
     var strokeColor: CanvasColor
     var strokeWidth: CGFloat
     var showsStroke: Bool
+    var cornerRadius: CGFloat
     var text: String
     var rotationAngleDegrees: Double
+    var pathPoints: [NormalizedPoint]
+    var pathContours: [CanvasPathContour]
+    var isClosedPath: Bool
+    var unionSourceElements: [CanvasElementSnapshot]
 
-    init(
+    nonisolated init(
         id: UUID = UUID(),
         kind: CanvasElementKind,
         frame: CGRect,
@@ -28,8 +33,13 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         strokeColor: CanvasColor = .ink,
         strokeWidth: CGFloat = 2,
         showsStroke: Bool = true,
+        cornerRadius: CGFloat = 0,
         text: String = "テキスト",
-        rotationAngleDegrees: Double = 0
+        rotationAngleDegrees: Double = 0,
+        pathPoints: [NormalizedPoint] = [],
+        pathContours: [CanvasPathContour] = [],
+        isClosedPath: Bool = true,
+        unionSourceElements: [CanvasElementSnapshot] = []
     ) {
         self.id = id
         self.kind = kind
@@ -38,8 +48,73 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
         self.strokeColor = strokeColor
         self.strokeWidth = strokeWidth
         self.showsStroke = showsStroke
+        self.cornerRadius = cornerRadius
         self.text = text
         self.rotationAngleDegrees = rotationAngleDegrees
+        self.pathPoints = pathPoints
+        self.pathContours = pathContours
+        self.isClosedPath = isClosedPath
+        self.unionSourceElements = unionSourceElements
+    }
+}
+
+struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
+    let id: UUID
+    var kind: CanvasElementKind
+    var frame: CGRect
+    var fillColor: CanvasColor
+    var strokeColor: CanvasColor
+    var strokeWidth: CGFloat
+    var showsStroke: Bool
+    var cornerRadius: CGFloat
+    var text: String
+    var rotationAngleDegrees: Double
+    var pathPoints: [NormalizedPoint]
+    var pathContours: [CanvasPathContour]
+    var isClosedPath: Bool
+
+    nonisolated init(element: CanvasElement) {
+        self.id = element.id
+        self.kind = element.kind
+        self.frame = element.frame
+        self.fillColor = element.fillColor
+        self.strokeColor = element.strokeColor
+        self.strokeWidth = element.strokeWidth
+        self.showsStroke = element.showsStroke
+        self.cornerRadius = element.cornerRadius
+        self.text = element.text
+        self.rotationAngleDegrees = element.rotationAngleDegrees
+        self.pathPoints = element.pathPoints
+        self.pathContours = element.pathContours
+        self.isClosedPath = element.isClosedPath
+    }
+
+    nonisolated var element: CanvasElement {
+        CanvasElement(
+            id: id,
+            kind: kind,
+            frame: frame,
+            fillColor: fillColor,
+            strokeColor: strokeColor,
+            strokeWidth: strokeWidth,
+            showsStroke: showsStroke,
+            cornerRadius: cornerRadius,
+            text: text,
+            rotationAngleDegrees: rotationAngleDegrees,
+            pathPoints: pathPoints,
+            pathContours: pathContours,
+            isClosedPath: isClosedPath
+        )
+    }
+}
+
+struct CanvasPathContour: Equatable, Hashable {
+    var points: [NormalizedPoint]
+    var isClosed: Bool
+
+    init(points: [NormalizedPoint], isClosed: Bool = true) {
+        self.points = points
+        self.isClosed = isClosed
     }
 }
 
@@ -64,15 +139,33 @@ enum CanvasTool: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 }
 
-enum CanvasColor: String, CaseIterable, Identifiable, Hashable {
+enum CanvasColor: Identifiable, Hashable {
     case paper
     case mint
     case coral
     case sky
     case ink
     case clear
+    case custom(red: Double, green: Double, blue: Double, opacity: Double)
 
-    var id: String { rawValue }
+    var id: String {
+        switch self {
+        case .paper:
+            "paper"
+        case .mint:
+            "mint"
+        case .coral:
+            "coral"
+        case .sky:
+            "sky"
+        case .ink:
+            "ink"
+        case .clear:
+            "clear"
+        case let .custom(red, green, blue, opacity):
+            "custom-\(red)-\(green)-\(blue)-\(opacity)"
+        }
+    }
 
     var swiftUIColor: Color {
         switch self {
@@ -88,6 +181,8 @@ enum CanvasColor: String, CaseIterable, Identifiable, Hashable {
             Color(red: 0.12, green: 0.14, blue: 0.16)
         case .clear:
             Color.clear
+        case let .custom(red, green, blue, opacity):
+            Color(red: red, green: green, blue: blue, opacity: opacity)
         }
     }
 
@@ -105,6 +200,8 @@ enum CanvasColor: String, CaseIterable, Identifiable, Hashable {
             "インク"
         case .clear:
             "透明"
+        case .custom:
+            "カスタム"
         }
     }
 }

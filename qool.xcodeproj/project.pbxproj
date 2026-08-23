@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D9BCA0012FAE0001008D6132 /* iOverlay in Frameworks */ = {isa = PBXBuildFile; productRef = D9BCA0002FAE0001008D6132 /* iOverlay */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		D9BC1EF42FAB8D12008D6132 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D9BCA0012FAE0001008D6132 /* iOverlay in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = qool;
 			packageProductDependencies = (
+				D9BCA0002FAE0001008D6132 /* iOverlay */,
 			);
 			productName = qool;
 			productReference = D9BC1EE62FAB8D11008D6132 /* qool.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = D9BC1EDD2FAB8D11008D6132;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D9BCA0022FAE0001008D6132 /* XCRemoteSwiftPackageReference "iOverlay" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D9BC1EE72FAB8D11008D6132 /* Products */;
 			projectDirPath = "";
@@ -578,6 +587,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D9BCA0022FAE0001008D6132 /* XCRemoteSwiftPackageReference "iOverlay" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/iShape-Swift/iOverlay";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.22.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D9BCA0002FAE0001008D6132 /* iOverlay */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D9BCA0022FAE0001008D6132 /* XCRemoteSwiftPackageReference "iOverlay" */;
+			productName = iOverlay;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D9BC1EDE2FAB8D11008D6132 /* Project object */;
 }

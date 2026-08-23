@@ -1,19 +1,38 @@
+import GameController
 import SwiftUI
+import UIKit
 
 struct CanvasSurface: View {
     let elements: [CanvasElement]
     let draftElement: CanvasElement?
-    let selectedElementID: CanvasElement.ID?
+    let selectedElementIDs: Set<CanvasElement.ID>
+    let unionSourceElements: [CanvasElementSnapshot]
+    let selectedUnionSourceID: CanvasElementSnapshot.ID?
     let selectedTool: CanvasTool
     let onClearSelection: () -> Void
     let onHitTestElement: (CGPoint) -> CanvasElement.ID?
+    let onHitTestUnionSource: (CGPoint) -> CanvasElementSnapshot.ID?
+    let onSelectElements: (CGRect) -> Void
     let onUpdateDraft: (CGPoint, CGPoint, CGSize) -> Void
     let onCommitDraft: (CGPoint, CGPoint, CGSize) -> Void
+    let onPlacePathPoint: (CGPoint, CGSize) -> Void
     let onSelectElement: (CanvasElement.ID) -> Void
+    let onToggleElementSelection: (CanvasElement.ID) -> Void
     let onMoveSelectedElement: (CGSize, CGSize) -> Void
+    let onDoubleTap: (CGPoint) -> Void
+    let onSelectUnionSource: (CanvasElementSnapshot.ID) -> Void
+    let onMoveUnionSource: (CanvasElementSnapshot.ID, CGSize, CGSize) -> Void
 
     @State private var activeDragTranslation: CGSize = .zero
-    @State private var activeDragElementID: CanvasElement.ID?
+    @State private var activeDragElementIDs: Set<CanvasElement.ID> = []
+    @State private var activeToggleElementID: CanvasElement.ID?
+    @State private var activeUnionSourceID: CanvasElementSnapshot.ID?
+    @State private var activeUnionSourceTranslation: CGSize = .zero
+    @State private var selectionDragStart: CGPoint?
+    @State private var selectionDragCurrent: CGPoint?
+    @State private var lastTapLocation: CGPoint?
+    @State private var lastTapDate: Date?
+    @State private var isShiftPressed = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -25,23 +44,45 @@ struct CanvasSurface: View {
                             .stroke(Color(.separator).opacity(0.28), lineWidth: 0.5)
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        if selectedTool == .select {
-                            onClearSelection()
-                        }
-                    }
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
                                 if selectedTool == .select {
-                                    if activeDragElementID == nil {
-                                        activeDragElementID = onHitTestElement(value.startLocation)
-                                        if let activeDragElementID {
-                                            onSelectElement(activeDragElementID)
+                                    // ドラッグ開始時に、ヒットテストを行い、要素がヒットした場合はその要素を選択状態にする。複数選択されている場合は、ヒットした要素が選択されているかどうかで、ドラッグの対象を切り替える。どの要素もヒットしなかった場合は、選択用のドラッグとして扱う。
+                                    if activeDragElementIDs.isEmpty, activeToggleElementID == nil, activeUnionSourceID == nil, selectionDragStart == nil {
+                                        if let hitUnionSourceID = onHitTestUnionSource(value.startLocation) {
+                                            onSelectUnionSource(hitUnionSourceID)
+                                            activeUnionSourceID = hitUnionSourceID
+                                        } else if let hitElementID = onHitTestElement(value.startLocation) {
+                                            if isShiftSelectionActive {
+                                                activeToggleElementID = hitElementID
+                                            } else if selectedElementIDs.contains(hitElementID) {
+                                                activeDragElementIDs = selectedElementIDs
+                                            } else {
+                                                onSelectElement(hitElementID)
+                                                activeDragElementIDs = [hitElementID]
+                                            }
+                                        } else {
+                                            selectionDragStart = value.startLocation
+                                            selectionDragCurrent = value.location
                                         }
                                     }
 
-                                    activeDragTranslation = activeDragElementID == nil ? .zero : value.translation
+                                    if activeDragElementIDs.isEmpty {
+                                        if activeToggleElementID != nil {
+                                            return
+                                        } else if activeUnionSourceID == nil {
+                                            selectionDragCurrent = value.location
+                                        } else {
+                                            activeUnionSourceTranslation = value.translation
+                                        }
+                                    } else {
+                                        activeDragTranslation = value.translation
+                                    }
+                                    return
+                                }
+
+                                if selectedTool == .path {
                                     return
                                 }
 
@@ -50,18 +91,59 @@ struct CanvasSurface: View {
                             .onEnded { value in
                                 if selectedTool == .select {
                                     defer {
-                                        activeDragElementID = nil
+                                        activeDragElementIDs.removeAll()
                                         activeDragTranslation = .zero
+                                        activeToggleElementID = nil
+                                        activeUnionSourceID = nil
+                                        activeUnionSourceTranslation = .zero
+                                        selectionDragStart = nil
+                                        selectionDragCurrent = nil
                                     }
 
-                                    guard let activeDragElementID else {
+                                    if let activeToggleElementID {
+                                        if abs(value.translation.width) <= 4, abs(value.translation.height) <= 4 {
+                                            onToggleElementSelection(activeToggleElementID)
+                                        }
+                                        return
+                                    }
+
+                                    if let activeUnionSourceID {
+                                        onSelectUnionSource(activeUnionSourceID)
+                                        if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
+                                            onMoveUnionSource(activeUnionSourceID, value.translation, proxy.size)
+                                        }
+                                        return
+                                    }
+
+                                    if !activeDragElementIDs.isEmpty {
+                                        if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
+                                            onMoveSelectedElement(value.translation, proxy.size)
+                                        } else {
+                                            if activeDragElementIDs.count == 1, let activeDragElementID = activeDragElementIDs.first {
+                                                onSelectElement(activeDragElementID)
+                                            }
+                                            registerTap(at: value.startLocation)
+                                        }
+                                        return
+                                    }
+
+                                    guard let selectionDragStart else {
                                         onClearSelection()
                                         return
                                     }
 
-                                    onSelectElement(activeDragElementID)
-                                    if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
-                                        onMoveSelectedElement(value.translation, proxy.size)
+                                    let selectionFrame = normalizedFrame(from: selectionDragStart, to: value.location)
+                                    if selectionFrame.width >= 4 || selectionFrame.height >= 4 {
+                                        onSelectElements(selectionFrame)
+                                    } else {
+                                        onClearSelection()
+                                    }
+                                    return
+                                }
+
+                                if selectedTool == .path {
+                                    if abs(value.translation.width) <= 4, abs(value.translation.height) <= 4 {
+                                        onPlacePathPoint(value.location, proxy.size)
                                     }
                                     return
                                 }
@@ -71,14 +153,30 @@ struct CanvasSurface: View {
                     )
 
                 ForEach(elements) { element in
-                    let isSelected = selectedElementID == element.id
+                    let isSelected = selectedElementIDs.contains(element.id)
                     CanvasElementView(
                         element: element,
                         isSelected: isSelected,
                         selectedTool: selectedTool
                     )
-                    .offset(activeDragElementID == element.id ? activeDragTranslation : .zero)
+                    .offset(activeDragElementIDs.contains(element.id) ? activeDragTranslation : .zero)
                     .allowsHitTesting(false)
+                }
+
+                ForEach(unionSourceElements) { sourceElement in
+                    CanvasElementView(
+                        element: sourceElement.element,
+                        isSelected: selectedUnionSourceID == sourceElement.id,
+                        selectedTool: selectedTool
+                    )
+                    .opacity(selectedUnionSourceID == sourceElement.id ? 0.62 : 0.34)
+                    .offset(activeUnionSourceID == sourceElement.id ? activeUnionSourceTranslation : .zero)
+                    .allowsHitTesting(false)
+                }
+
+                if let selectionDragStart, let selectionDragCurrent {
+                    SelectionMarquee(frame: normalizedFrame(from: selectionDragStart, to: selectionDragCurrent))
+                        .allowsHitTesting(false)
                 }
 
                 if let draftElement {
@@ -90,8 +188,120 @@ struct CanvasSurface: View {
                     .opacity(0.72)
                     .allowsHitTesting(false)
                 }
+
             }
             .clipShape(Rectangle())
+            .background(ModifierKeyReader(isShiftPressed: $isShiftPressed))
+        }
+    }
+
+    private var isShiftSelectionActive: Bool {
+        isShiftPressed || KeyboardModifierState.isShiftPressed
+    }
+
+    private func normalizedFrame(from start: CGPoint, to current: CGPoint) -> CGRect {
+        CGRect(
+            x: min(start.x, current.x),
+            y: min(start.y, current.y),
+            width: abs(current.x - start.x),
+            height: abs(current.y - start.y)
+        )
+    }
+
+    private func registerTap(at location: CGPoint) {
+        let now = Date()
+        guard let lastTapLocation, let lastTapDate else {
+            self.lastTapLocation = location
+            self.lastTapDate = now
+            return
+        }
+
+        let elapsedTime = now.timeIntervalSince(lastTapDate)
+        let distance = hypot(location.x - lastTapLocation.x, location.y - lastTapLocation.y)
+        if elapsedTime <= 0.35, distance <= 24 {
+            onDoubleTap(location)
+            self.lastTapLocation = nil
+            self.lastTapDate = nil
+        } else {
+            self.lastTapLocation = location
+            self.lastTapDate = now
+        }
+    }
+}
+
+private enum KeyboardModifierState {
+    static var isShiftPressed: Bool {
+        guard let input = GCKeyboard.coalesced?.keyboardInput else {
+            return false
+        }
+
+        return input.button(forKeyCode: .leftShift)?.isPressed == true
+            || input.button(forKeyCode: .rightShift)?.isPressed == true
+    }
+}
+
+private struct ModifierKeyReader: UIViewRepresentable {
+    @Binding var isShiftPressed: Bool
+
+    func makeUIView(context: Context) -> ModifierKeyReaderView {
+        let view = ModifierKeyReaderView()
+        view.onShiftChange = { isPressed in
+            isShiftPressed = isPressed
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: ModifierKeyReaderView, context: Context) {
+        uiView.onShiftChange = { isPressed in
+            isShiftPressed = isPressed
+        }
+        uiView.activateIfPossible()
+    }
+}
+
+private final class ModifierKeyReaderView: UIView {
+    var onShiftChange: ((Bool) -> Void)?
+
+    override var canBecomeFirstResponder: Bool {
+        true
+    }
+
+    func activateIfPossible() {
+        guard window != nil, !isFirstResponder else {
+            return
+        }
+
+        becomeFirstResponder()
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        onShiftChange?(event?.modifierFlags.contains(.shift) == true)
+        super.pressesBegan(presses, with: event)
+    }
+
+    override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        onShiftChange?(event?.modifierFlags.contains(.shift) == true)
+        super.pressesChanged(presses, with: event)
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        onShiftChange?(event?.modifierFlags.contains(.shift) == true)
+        super.pressesEnded(presses, with: event)
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        onShiftChange?(false)
+        super.pressesCancelled(presses, with: event)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            onShiftChange?(false)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.activateIfPossible()
+            }
         }
     }
 }
@@ -119,13 +329,28 @@ private struct CanvasElementView: View {
     private var elementBody: some View {
         switch element.kind {
         case .rectangle:
-            Rectangle()
+            RoundedRectangle(cornerRadius: element.cornerRadius)
                 .fill(element.fillColor.swiftUIColor)
-                .overlay(strokeOverlay(Rectangle()))
+                .overlay(strokeOverlay(RoundedRectangle(cornerRadius: element.cornerRadius)))
         case .path:
-            PathShape()
-                .fill(element.fillColor.swiftUIColor.opacity(0.75))
-                .overlay(strokeOverlay(PathShape()))
+            if !element.pathContours.isEmpty {
+                MultiContourPathShape(contours: element.pathContours)
+                    .fill(element.fillColor.swiftUIColor.opacity(0.75), style: FillStyle(eoFill: true))
+                    .overlay(strokeOverlay(MultiContourPathShape(contours: element.pathContours)))
+            } else if element.pathPoints.isEmpty {
+                LegacyPathShape()
+                    .fill(element.fillColor.swiftUIColor.opacity(0.75))
+                    .overlay(strokeOverlay(LegacyPathShape()))
+            } else {
+                BezierPathShape(points: element.pathPoints, isClosed: element.isClosedPath)
+                    .fill(element.fillColor.swiftUIColor.opacity(element.isClosedPath ? 0.75 : 0.18))
+                    .overlay(strokeOverlay(BezierPathShape(points: element.pathPoints, isClosed: element.isClosedPath)))
+                    .overlay {
+                        if !element.isClosedPath {
+                            PathPointMarkers(points: element.pathPoints)
+                        }
+                    }
+            }
         case .line:
             LineShape()
                 .stroke(
@@ -174,6 +399,21 @@ private struct SelectionOutline: View {
     }
 }
 
+private struct SelectionMarquee: View {
+    let frame: CGRect
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.accentColor.opacity(0.10))
+            .overlay {
+                Rectangle()
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            }
+            .frame(width: frame.width, height: frame.height)
+            .position(x: frame.midX, y: frame.midY)
+    }
+}
+
 private struct GridPattern: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -196,7 +436,7 @@ private struct GridPattern: Shape {
     }
 }
 
-private struct PathShape: Shape {
+private struct LegacyPathShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.minX + rect.width * 0.14, y: rect.midY))
@@ -213,6 +453,125 @@ private struct PathShape: Shape {
         )
         path.closeSubpath()
         return path
+    }
+}
+
+private struct BezierPathShape: Shape {
+    let points: [NormalizedPoint]
+    let isClosed: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let cgPoints = points.map { point in
+            CGPoint(
+                x: rect.minX + rect.width * CGFloat(point.x),
+                y: rect.minY + rect.height * CGFloat(point.y)
+            )
+        }
+
+        var path = Path()
+        guard let firstPoint = cgPoints.first else {
+            return path
+        }
+
+        if cgPoints.count == 1 {
+            path.addEllipse(in: CGRect(x: firstPoint.x - 4, y: firstPoint.y - 4, width: 8, height: 8))
+            return path
+        }
+
+        path.move(to: firstPoint)
+
+        if cgPoints.count == 2 {
+            path.addLine(to: cgPoints[1])
+        } else {
+            addSmoothedSegments(to: &path, points: cgPoints)
+        }
+
+        if isClosed {
+            if cgPoints.count > 2 {
+                addClosingCurve(to: &path, points: cgPoints)
+            }
+            path.closeSubpath()
+        }
+
+        return path
+    }
+
+    private func addSmoothedSegments(to path: inout Path, points: [CGPoint]) {
+        for index in 1..<points.count {
+            if index == points.count - 1 {
+                path.addQuadCurve(to: points[index], control: points[index - 1])
+            } else {
+                let midpoint = CGPoint(
+                    x: (points[index].x + points[index + 1].x) / 2,
+                    y: (points[index].y + points[index + 1].y) / 2
+                )
+                path.addQuadCurve(to: midpoint, control: points[index])
+            }
+        }
+    }
+
+    private func addClosingCurve(to path: inout Path, points: [CGPoint]) {
+        guard let firstPoint = points.first, let lastPoint = points.last else {
+            return
+        }
+
+        let midpoint = CGPoint(
+            x: (lastPoint.x + firstPoint.x) / 2,
+            y: (lastPoint.y + firstPoint.y) / 2
+        )
+        path.addQuadCurve(to: midpoint, control: lastPoint)
+        path.addQuadCurve(to: firstPoint, control: firstPoint)
+    }
+}
+
+private struct MultiContourPathShape: Shape {
+    let contours: [CanvasPathContour]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+
+        for contour in contours where !contour.points.isEmpty {
+            let cgPoints = contour.points.map { point in
+                CGPoint(
+                    x: rect.minX + rect.width * CGFloat(point.x),
+                    y: rect.minY + rect.height * CGFloat(point.y)
+                )
+            }
+
+            guard let firstPoint = cgPoints.first else {
+                continue
+            }
+
+            path.move(to: firstPoint)
+            for point in cgPoints.dropFirst() {
+                path.addLine(to: point)
+            }
+            if contour.isClosed {
+                path.closeSubpath()
+            }
+        }
+
+        return path
+    }
+}
+
+private struct PathPointMarkers: View {
+    let points: [NormalizedPoint]
+
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(Array(points.enumerated()), id: \.offset) { index, point in
+                Circle()
+                    .fill(index == 0 ? Color.accentColor : Color.white)
+                    .frame(width: 8, height: 8)
+                    .overlay(Circle().stroke(Color.accentColor, lineWidth: 1.5))
+                    .position(
+                        x: proxy.size.width * CGFloat(point.x),
+                        y: proxy.size.height * CGFloat(point.y)
+                    )
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
