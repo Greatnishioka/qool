@@ -171,6 +171,17 @@ final class CanvasViewModel: ObservableObject {
         selectedElementIDs = [id]
     }
 
+    func toggleElementSelection(id: CanvasElement.ID) {
+        selectedTool = .select
+        editingUnionElementID = nil
+        selectedUnionSourceID = nil
+        if selectedElementIDs.contains(id) {
+            selectedElementIDs.remove(id)
+        } else {
+            selectedElementIDs.insert(id)
+        }
+    }
+
     func selectElements(in selectionFrame: CGRect) {
         editingUnionElementID = nil
         selectedUnionSourceID = nil

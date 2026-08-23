@@ -1,0 +1,170 @@
+<!-- @dsCard group="Screens" -->
+<meta charset="utf-8"><title>S4 Floating Memo</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font:13px/1.35 -apple-system,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  color:var(--label);
+  background:var(--desk);
+  padding:28px;
+  display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start;
+}
+:root{
+  --label:#000; --secondary:rgba(60,60,67,.62); --tertiary:rgba(60,60,67,.32);
+  --separator:rgba(60,60,67,.16); --hairline:rgba(0,0,0,.08);
+  --accent:#007AFF; --red:#FF3B30; --green:#34C759; --orange:#FF9500;
+  --panel:rgba(243,243,243,.86); --panel-solid:#F2F2F2;
+  --control:#FFF; --fill:rgba(116,116,128,.09); --fill2:rgba(116,116,128,.16);
+  --desk:linear-gradient(135deg,#8EA9C9 0%,#C7B6D8 38%,#E8C9A8 68%,#9FC5B0 100%); --canvas:#FFF;
+  --shadow:0 12px 34px rgba(0,0,0,.20),0 1px 2px rgba(0,0,0,.12);
+}
+:root:not([data-theme=light]){}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme=light]){
+    --label:#FFF; --secondary:rgba(235,235,245,.60); --tertiary:rgba(235,235,245,.30);
+    --separator:rgba(235,235,245,.18); --hairline:rgba(255,255,255,.10);
+    --panel:rgba(42,42,44,.86); --panel-solid:#2A2A2C;
+    --control:#1E1E20; --fill:rgba(120,120,128,.24); --fill2:rgba(120,120,128,.36);
+    --desk:linear-gradient(135deg,#2C3A4E 0%,#43354F 38%,#523F2E 68%,#28453A 100%); --canvas:#F7F7F7;
+    --shadow:0 14px 40px rgba(0,0,0,.55),0 1px 2px rgba(0,0,0,.4);
+  }
+}
+.stage{display:flex;flex-direction:column;gap:8px}
+.cap{font-size:11px;color:var(--secondary);letter-spacing:.02em}
+.cap b{color:var(--label);font-weight:600}
+/* --- panel --- */
+.panel{
+  width:320px;background:var(--panel);backdrop-filter:blur(28px) saturate(180%);
+  -webkit-backdrop-filter:blur(28px) saturate(180%);
+  border-radius:14px;box-shadow:var(--shadow);
+  border:.5px solid var(--hairline);overflow:hidden;
+}
+.pad{padding:10px 12px}
+.row{display:flex;align-items:center;gap:10px}
+.sep{height:.5px;background:var(--separator);margin:0 12px}
+/* --- list row --- */
+.mrow{display:flex;align-items:center;gap:10px;padding:6px 12px;height:48px}
+.mrow:hover{background:var(--fill)}
+.mrow.sel{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.thumb{width:36px;height:36px;border-radius:5px;background:var(--canvas);
+  border:.5px solid var(--hairline);flex:none;overflow:hidden}
+.thumb.lg{width:52px;height:52px;border-radius:7px}
+.txt{min-width:0;flex:1}
+.t1{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t2{font-size:11px;color:var(--secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.more{color:var(--tertiary);flex:none;font-size:15px;letter-spacing:1px;line-height:1}
+.kbd{font:10px/1 ui-monospace,"SF Mono",monospace;color:var(--secondary);
+  background:var(--fill);border:.5px solid var(--hairline);border-radius:4px;
+  padding:3px 5px;white-space:nowrap}
+/* --- section header --- */
+.shead{display:flex;align-items:baseline;justify-content:space-between;padding:10px 12px 4px}
+.shead .h{font-size:13px;font-weight:700}
+.shead .a{font-size:12px;color:var(--accent)}
+.ssub{font-size:11px;color:var(--secondary);padding:0 12px 6px}
+/* --- segmented --- */
+.seg{display:flex;gap:6px;padding:6px 12px 10px}
+.seg > div{flex:1;height:26px;border-radius:13px;display:flex;align-items:center;
+  justify-content:center;gap:5px;font-size:12px;font-weight:500;background:var(--fill);color:var(--label)}
+.seg > div.on{background:var(--label);color:var(--panel-solid)}
+/* --- toolbar --- */
+.win{background:var(--panel-solid);border-radius:10px;box-shadow:var(--shadow);
+  border:.5px solid var(--hairline);overflow:hidden}
+.tbar{height:46px;display:flex;align-items:center;gap:6px;padding:0 12px;
+  background:var(--panel);border-bottom:.5px solid var(--separator)}
+.lights{display:flex;gap:8px;margin-right:8px}
+.lights i{width:12px;height:12px;border-radius:50%;display:block}
+.tt{font-size:13px;font-weight:600}
+.tbtn{width:28px;height:24px;border-radius:6px;display:flex;align-items:center;
+  justify-content:center;color:var(--label);opacity:.75}
+.tbtn.on{background:var(--fill2);opacity:1;color:var(--accent)}
+.spacer{flex:1}
+/* --- inspector --- */
+.insp{width:260px;background:var(--panel-solid);border-left:.5px solid var(--separator);padding:12px}
+.grp{font-size:11px;font-weight:600;color:var(--secondary);text-transform:none;margin:14px 0 6px}
+.grp:first-child{margin-top:0}
+.frow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0;font-size:12px}
+.slider{height:4px;border-radius:2px;background:var(--fill2);position:relative;flex:1}
+.slider i{position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.35);display:block}
+.slider u{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:2px;display:block}
+.well{width:34px;height:20px;border-radius:4px;border:.5px solid var(--hairline)}
+.tog{width:34px;height:20px;border-radius:10px;background:var(--green);position:relative}
+.tog i{position:absolute;right:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;display:block}
+.tog.off{background:var(--fill2)} .tog.off i{left:2px;right:auto}
+
+/* --- Liquid Glass (macOS 26) の近似 --- */
+.glass{
+  position:relative;
+  background:
+    radial-gradient(120% 90% at 18% 6%, rgba(255,255,255,.66), rgba(255,255,255,.30) 58%, rgba(255,255,255,.20) 100%);
+  backdrop-filter:blur(26px) saturate(220%) brightness(1.06);
+  -webkit-backdrop-filter:blur(26px) saturate(220%) brightness(1.06);
+  border-radius:20px;
+  box-shadow:
+    0 12px 36px rgba(0,0,0,.20),
+    0 2px 6px rgba(0,0,0,.10),
+    0 0 0 .5px rgba(255,255,255,.75);
+}
+/* 縁のレンズ効果 */
+.glass::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,1),
+    inset 0 0 16px rgba(255,255,255,.58),
+    inset 0 -1.5px 0 rgba(255,255,255,.55),
+    inset 1.5px 0 0 rgba(255,255,255,.65),
+    inset -1.5px 0 0 rgba(255,255,255,.65);
+}
+/* スペキュラハイライト */
+.glass::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(148deg,
+    rgba(255,255,255,.62) 0%, rgba(255,255,255,.10) 26%,
+    rgba(255,255,255,0) 52%, rgba(255,255,255,0) 74%,
+    rgba(255,255,255,.34) 100%);
+  mix-blend-mode:overlay;
+}
+.glass > *{position:relative;z-index:1}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme=light]) .glass{
+    background:radial-gradient(120% 90% at 18% 6%, rgba(120,120,126,.56), rgba(58,58,62,.34) 60%, rgba(44,44,48,.30) 100%);
+    box-shadow:0 14px 40px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.35),0 0 0 .5px rgba(255,255,255,.24);
+  }
+  :root:not([data-theme=light]) .glass::before{
+    box-shadow:
+      inset 0 1.5px 0 rgba(255,255,255,.42),
+      inset 0 0 16px rgba(255,255,255,.16),
+      inset 0 -1.5px 0 rgba(255,255,255,.12),
+      inset 1.5px 0 0 rgba(255,255,255,.16),
+      inset -1.5px 0 0 rgba(255,255,255,.16);
+  }
+  :root:not([data-theme=light]) .glass::after{
+    background:linear-gradient(148deg,rgba(255,255,255,.26) 0%,rgba(255,255,255,.04) 30%,
+      rgba(255,255,255,0) 60%,rgba(255,255,255,.12) 100%);
+  }
+}
+/* パネルをガラスにする（S1 / S2 / S3） */
+.panel.glass{border:none}
+.glass .grp{color:var(--secondary)}
+.gcap{display:flex;align-items:center;justify-content:space-between;
+  padding:9px 12px 5px;border-bottom:.5px solid rgba(255,255,255,.5)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .gcap{border-bottom-color:rgba(255,255,255,.12)}}
+.gcap .gt{font-size:12px;font-weight:600}
+.chev{font-size:10px;color:var(--secondary);width:18px;height:18px;border-radius:9px;
+  display:flex;align-items:center;justify-content:center;background:rgba(120,120,128,.20)}
+.gbody{padding:8px 12px 12px}
+.glass .slider{background:rgba(120,120,128,.30)}
+.glass .segsm{border-color:rgba(255,255,255,.65)}
+.glass .segsm span{background:rgba(255,255,255,.38)}
+.glass .segsm span.on{background:rgba(255,255,255,.88)}
+.glass .sep{background:rgba(255,255,255,.5)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .glass .sep{background:rgba(255,255,255,.12)}}
+.grab{width:26px;height:4px;border-radius:2px;background:rgba(120,120,128,.35);margin:0 auto}
+.mono{font:10px/1 ui-monospace,"SF Mono",monospace;color:var(--secondary)}
+.segsm{display:flex;border-radius:6px;overflow:hidden;border:.5px solid var(--hairline);flex:1}
+.segsm span{flex:1;text-align:center;font-size:11px;padding:3px 0;background:var(--control)}
+.segsm span.on{background:var(--fill2);font-weight:600}
+</style>
+<div class="stage"><div class="cap"><b>S4. フローティングメモ</b> — ⌃Q F で出る本体。クロームはゼロ</div><div style="position:relative;width:360px;height:260px"><svg viewBox="0 0 360 260" width="360" height="260" style="filter:drop-shadow(0 14px 34px rgba(0,0,0,.34))"><defs><clipPath id="c"><path d="M28 22 Q150 4 322 30 Q346 120 314 214 Q180 254 44 232 Q10 130 28 22 Z"/></clipPath></defs><g clip-path="url(#c)"><rect width="360" height="260" fill="#FAF7EC"/><rect x="34" y="40" width="120" height="72" rx="10" fill="#A9DCBD" stroke="#1F2429" stroke-width="2.5"/><circle cx="268" cy="78" r="34" fill="#F07A6B" stroke="#1F2429" stroke-width="2.5"/><path d="M40 200 q60 -46 118 -14 q52 28 122 -18" fill="none" stroke="#1F2429" stroke-width="2.5"/><text x="48" y="80" font-size="15" font-family="-apple-system" fill="#1F2429">15:00 打ち合わせ</text><text x="48" y="104" font-size="15" font-family="-apple-system" fill="#1F2429">資料を持っていく</text><text x="48" y="152" font-size="15" font-family="-apple-system" fill="#1F2429">・見積もりの確認</text><text x="48" y="174" font-size="15" font-family="-apple-system" fill="#1F2429">・次回の日程</text></g></svg><div style="position:absolute;right:26px;top:26px;display:flex;gap:5px"><div style="width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.34);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center">✎</div><div style="width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.34);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center">✕</div></div></div><div class="cap" style="max-width:360px">タイトルバーなし。輪郭でマスクされ、<b>外側のクリックは背面のアプリに抜ける</b>。操作はホバー時だけ隅に薄く出す。</div></div>

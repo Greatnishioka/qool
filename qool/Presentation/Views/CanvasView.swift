@@ -37,6 +37,7 @@ struct CanvasView: View {
                         onCommitDraft: viewModel.commitDraft,
                         onPlacePathPoint: viewModel.placePathPoint,
                         onSelectElement: viewModel.selectElement,
+                        onToggleElementSelection: viewModel.toggleElementSelection,
                         onMoveSelectedElement: viewModel.moveSelectedElement,
                         onDoubleTap: viewModel.beginEditingUnionElement,
                         onSelectUnionSource: viewModel.selectUnionSource,

@@ -1,4 +1,6 @@
+import GameController
 import SwiftUI
+import UIKit
 
 struct CanvasSurface: View {
     let elements: [CanvasElement]
@@ -15,6 +17,7 @@ struct CanvasSurface: View {
     let onCommitDraft: (CGPoint, CGPoint, CGSize) -> Void
     let onPlacePathPoint: (CGPoint, CGSize) -> Void
     let onSelectElement: (CanvasElement.ID) -> Void
+    let onToggleElementSelection: (CanvasElement.ID) -> Void
     let onMoveSelectedElement: (CGSize, CGSize) -> Void
     let onDoubleTap: (CGPoint) -> Void
     let onSelectUnionSource: (CanvasElementSnapshot.ID) -> Void
@@ -22,12 +25,14 @@ struct CanvasSurface: View {
 
     @State private var activeDragTranslation: CGSize = .zero
     @State private var activeDragElementIDs: Set<CanvasElement.ID> = []
+    @State private var activeToggleElementID: CanvasElement.ID?
     @State private var activeUnionSourceID: CanvasElementSnapshot.ID?
     @State private var activeUnionSourceTranslation: CGSize = .zero
     @State private var selectionDragStart: CGPoint?
     @State private var selectionDragCurrent: CGPoint?
     @State private var lastTapLocation: CGPoint?
     @State private var lastTapDate: Date?
+    @State private var isShiftPressed = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -44,12 +49,14 @@ struct CanvasSurface: View {
                             .onChanged { value in
                                 if selectedTool == .select {
                                     // ドラッグ開始時に、ヒットテストを行い、要素がヒットした場合はその要素を選択状態にする。複数選択されている場合は、ヒットした要素が選択されているかどうかで、ドラッグの対象を切り替える。どの要素もヒットしなかった場合は、選択用のドラッグとして扱う。
-                                    if activeDragElementIDs.isEmpty, activeUnionSourceID == nil, selectionDragStart == nil {
+                                    if activeDragElementIDs.isEmpty, activeToggleElementID == nil, activeUnionSourceID == nil, selectionDragStart == nil {
                                         if let hitUnionSourceID = onHitTestUnionSource(value.startLocation) {
                                             onSelectUnionSource(hitUnionSourceID)
                                             activeUnionSourceID = hitUnionSourceID
                                         } else if let hitElementID = onHitTestElement(value.startLocation) {
-                                            if selectedElementIDs.contains(hitElementID) {
+                                            if isShiftSelectionActive {
+                                                activeToggleElementID = hitElementID
+                                            } else if selectedElementIDs.contains(hitElementID) {
                                                 activeDragElementIDs = selectedElementIDs
                                             } else {
                                                 onSelectElement(hitElementID)
@@ -62,7 +69,9 @@ struct CanvasSurface: View {
                                     }
 
                                     if activeDragElementIDs.isEmpty {
-                                        if activeUnionSourceID == nil {
+                                        if activeToggleElementID != nil {
+                                            return
+                                        } else if activeUnionSourceID == nil {
                                             selectionDragCurrent = value.location
                                         } else {
                                             activeUnionSourceTranslation = value.translation
@@ -84,10 +93,18 @@ struct CanvasSurface: View {
                                     defer {
                                         activeDragElementIDs.removeAll()
                                         activeDragTranslation = .zero
+                                        activeToggleElementID = nil
                                         activeUnionSourceID = nil
                                         activeUnionSourceTranslation = .zero
                                         selectionDragStart = nil
                                         selectionDragCurrent = nil
+                                    }
+
+                                    if let activeToggleElementID {
+                                        if abs(value.translation.width) <= 4, abs(value.translation.height) <= 4 {
+                                            onToggleElementSelection(activeToggleElementID)
+                                        }
+                                        return
                                     }
 
                                     if let activeUnionSourceID {
@@ -99,13 +116,12 @@ struct CanvasSurface: View {
                                     }
 
                                     if !activeDragElementIDs.isEmpty {
-                                        if activeDragElementIDs.count == 1, let activeDragElementID = activeDragElementIDs.first {
-                                            onSelectElement(activeDragElementID)
-                                        }
-
                                         if abs(value.translation.width) > 0.5 || abs(value.translation.height) > 0.5 {
                                             onMoveSelectedElement(value.translation, proxy.size)
                                         } else {
+                                            if activeDragElementIDs.count == 1, let activeDragElementID = activeDragElementIDs.first {
+                                                onSelectElement(activeDragElementID)
+                                            }
                                             registerTap(at: value.startLocation)
                                         }
                                         return
@@ -172,9 +188,15 @@ struct CanvasSurface: View {
                     .opacity(0.72)
                     .allowsHitTesting(false)
                 }
+
             }
             .clipShape(Rectangle())
+            .background(ModifierKeyReader(isShiftPressed: $isShiftPressed))
         }
+    }
+
+    private var isShiftSelectionActive: Bool {
+        isShiftPressed || KeyboardModifierState.isShiftPressed
     }
 
     private func normalizedFrame(from start: CGPoint, to current: CGPoint) -> CGRect {
@@ -203,6 +225,83 @@ struct CanvasSurface: View {
         } else {
             self.lastTapLocation = location
             self.lastTapDate = now
+        }
+    }
+}
+
+private enum KeyboardModifierState {
+    static var isShiftPressed: Bool {
+        guard let input = GCKeyboard.coalesced?.keyboardInput else {
+            return false
+        }
+
+        return input.button(forKeyCode: .leftShift)?.isPressed == true
+            || input.button(forKeyCode: .rightShift)?.isPressed == true
+    }
+}
+
+private struct ModifierKeyReader: UIViewRepresentable {
+    @Binding var isShiftPressed: Bool
+
+    func makeUIView(context: Context) -> ModifierKeyReaderView {
+        let view = ModifierKeyReaderView()
+        view.onShiftChange = { isPressed in
+            isShiftPressed = isPressed
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: ModifierKeyReaderView, context: Context) {
+        uiView.onShiftChange = { isPressed in
+            isShiftPressed = isPressed
+        }
+        uiView.activateIfPossible()
+    }
+}
+
+private final class ModifierKeyReaderView: UIView {
+    var onShiftChange: ((Bool) -> Void)?
+
+    override var canBecomeFirstResponder: Bool {
+        true
+    }
+
+    func activateIfPossible() {
+        guard window != nil, !isFirstResponder else {
+            return
+        }
+
+        becomeFirstResponder()
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        onShiftChange?(event?.modifierFlags.contains(.shift) == true)
+        super.pressesBegan(presses, with: event)
+    }
+
+    override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        onShiftChange?(event?.modifierFlags.contains(.shift) == true)
+        super.pressesChanged(presses, with: event)
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        onShiftChange?(event?.modifierFlags.contains(.shift) == true)
+        super.pressesEnded(presses, with: event)
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        onShiftChange?(false)
+        super.pressesCancelled(presses, with: event)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            onShiftChange?(false)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.activateIfPossible()
+            }
         }
     }
 }
