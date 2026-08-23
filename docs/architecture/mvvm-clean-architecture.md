@@ -60,7 +60,7 @@ qool/
 
 ### Domain が SwiftUI に依存している
 
-[`Canvas.swift`](../../Domain/Models/Canvas.swift) が `import SwiftUI` し、
+[`Canvas.swift`](../../qool/Domain/Models/Canvas.swift) が `import SwiftUI` し、
 `CanvasColor.swiftUIColor: Color` を持っています。**Domain が UI フレームワークに依存する形**です。
 
 色は Domain では RGBA の値として持ち、Presentation 側の extension で `Color` へ変換するのが本来の形です。
@@ -93,7 +93,7 @@ qool は現在 iOS / iPadOS ターゲットですが、[MVP](../product/mvp.md) 
 
 UIKit に依存しているのは以下の 2 ファイルのみで、影響範囲は限定的です。
 
-- [`CanvasSurface.swift`](../../Presentation/Views/Components/CanvasSurface.swift) — `UIPress` / `GameController` による Shift キー検出
-- [`CanvasPropertiesPanel.swift`](../../Presentation/Views/Components/CanvasPropertiesPanel.swift) — `UIColor` による色成分の取得
+- [`CanvasSurface.swift`](../../qool/Presentation/Views/Components/CanvasSurface.swift) — `UIPress` / `GameController` による Shift キー検出
+- [`CanvasPropertiesPanel.swift`](../../qool/Presentation/Views/Components/CanvasPropertiesPanel.swift) — `UIColor` による色成分の取得
 
 いずれも Presentation 層にあり、Domain / Application は UIKit に依存していません。

@@ -3,9 +3,9 @@
 切り抜いた画像の見え方を整えて、キャンバスに貼り付ける画面です。
 [画像切り抜き](03-image-cutout.md)と同じく、現状は**フロー確認用のモック**です。
 
-- View: [`ImageAdjustmentView`](../../Presentation/Views/ImageAdjustmentView.swift)
-- スライダー: [`AdjustmentSlider`](../../Presentation/Views/Components/AdjustmentSlider.swift)
-- モデル: `ImageAdjustment`（[ImageMemoWorkflow.swift](../../Domain/Models/ImageMemoWorkflow.swift)）
+- View: [`ImageAdjustmentView`](../../qool/Presentation/Views/ImageAdjustmentView.swift)
+- スライダー: [`AdjustmentSlider`](../../qool/Presentation/Views/Components/AdjustmentSlider.swift)
+- モデル: `ImageAdjustment`（[ImageMemoWorkflow.swift](../../qool/Domain/Models/ImageMemoWorkflow.swift)）
 
 ## 画面構成
 

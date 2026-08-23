@@ -46,7 +46,7 @@ ContentView
 
 ## 永続化について
 
-現状のリポジトリ実装は [`InMemoryMemoRepository`](../../Infrastructure/Persistence/InMemoryMemoRepository.swift) のみです。
+現状のリポジトリ実装は [`InMemoryMemoRepository`](../../qool/Infrastructure/Persistence/InMemoryMemoRepository.swift) のみです。
 
 - アプリを再起動すると編集内容はすべて失われます
 - 起動時に固定のシードメモ 2 件（「買い物メモ」「切り抜きサンプル」）が入ります

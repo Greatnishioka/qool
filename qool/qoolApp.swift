@@ -1,17 +1,16 @@
-//
-//  qoolApp.swift
-//  qool
-//
-//  Created by 西岡 on 2026/05/06.
-//
-
 import SwiftUI
 
 @main
-struct qoolApp: App {
+struct QoolApp: App {
+    @StateObject private var viewModel = AppRootViewModel.bootstrap()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        // メニューバー項目。Dock には出さない（Info.plist の LSUIElement）。
+        MenuBarExtra {
+            MemoPanelView(viewModel: viewModel)
+        } label: {
+            Image(systemName: "square.on.square.dashed")
         }
+        .menuBarExtraStyle(.window)
     }
 }

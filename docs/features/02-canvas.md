@@ -2,11 +2,11 @@
 
 メモの本体。矩形・パス・直線・テキストを配置し、色や枠線を設定し、図形同士を結合 (Union) できる編集画面です。
 
-- View: [`CanvasView`](../../Presentation/Views/CanvasView.swift)
-- 描画・ジェスチャ: [`CanvasSurface`](../../Presentation/Views/Components/CanvasSurface.swift)
-- プロパティ: [`CanvasPropertiesPanel`](../../Presentation/Views/Components/CanvasPropertiesPanel.swift)
-- ツールバー: [`CanvasToolDock`](../../Presentation/Views/Components/CanvasToolDock.swift)
-- ViewModel: [`CanvasViewModel`](../../Presentation/ViewModels/CanvasViewModel.swift)
+- View: [`CanvasView`](../../qool/Presentation/Views/CanvasView.swift)
+- 描画・ジェスチャ: [`CanvasSurface`](../../qool/Presentation/Views/Components/CanvasSurface.swift)
+- プロパティ: [`CanvasPropertiesPanel`](../../qool/Presentation/Views/Components/CanvasPropertiesPanel.swift)
+- ツールバー: [`CanvasToolDock`](../../qool/Presentation/Views/Components/CanvasToolDock.swift)
+- ViewModel: [`CanvasViewModel`](../../qool/Presentation/ViewModels/CanvasViewModel.swift)
 
 ## レイアウト
 
@@ -51,7 +51,7 @@
 
 ### ドラッグで描く（矩形 / 直線 / テキスト / 画像）
 
-[`CanvasDraftElementBuilder`](../../Domain/Services/CanvasDraftElementBuilder.swift) が担当します。
+[`CanvasDraftElementBuilder`](../../qool/Domain/Services/CanvasDraftElementBuilder.swift) が担当します。
 
 1. ドラッグ中は `updateDraft` がドラフト要素を作り、キャンバス上に不透明度 0.72 で仮表示
 2. 始点・現在地はキャンバス矩形内にクランプされる
@@ -76,7 +76,7 @@
 
 ## 選択
 
-[`CanvasSelectionService`](../../Domain/Services/CanvasSelectionService.swift) が判定を担当し、
+[`CanvasSelectionService`](../../qool/Domain/Services/CanvasSelectionService.swift) が判定を担当し、
 選択は `Set<CanvasElement.ID>` で管理されるため複数選択に対応しています。
 
 | 操作 | 挙動 |
@@ -112,7 +112,7 @@ SwiftUI の標準ジェスチャではなく、`registerTap(at:)` が自前で�
 
 ## 移動
 
-`moveSelectedElement` → [`CanvasEditingUseCases.moveElements`](../../Application/UseCases/CanvasEditingUseCases.swift)。
+`moveSelectedElement` → [`CanvasEditingUseCases.moveElements`](../../qool/Application/UseCases/CanvasEditingUseCases.swift)。
 
 - 選択中の要素をまとめて平行移動
 - **選択範囲全体の外接矩形がキャンバス外に出ないようにクランプ**（個々の要素ではなくグループ単位）
@@ -143,7 +143,7 @@ SwiftUI の標準ジェスチャではなく、`registerTap(at:)` が自前で�
 
 ## Union (結合)
 
-[`CanvasUnionUseCase`](../../Application/UseCases/CanvasUnionUseCase.swift) が
+[`CanvasUnionUseCase`](../../qool/Application/UseCases/CanvasUnionUseCase.swift) が
 外部ライブラリ **[iOverlay](https://github.com/iShape-Swift/iOverlay)** を使ってブーリアン和を計算します。
 
 ### 対象と非対象

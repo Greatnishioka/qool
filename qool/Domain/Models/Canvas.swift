@@ -1,5 +1,5 @@
+import CoreGraphics
 import Foundation
-import SwiftUI
 
 struct Canvas: Equatable, Hashable {
     var elements: [CanvasElement]
@@ -167,22 +167,24 @@ enum CanvasColor: Identifiable, Hashable {
         }
     }
 
-    var swiftUIColor: Color {
+    /// 色の実体。UI フレームワークには依存しない。
+    /// SwiftUI の `Color` への変換は Presentation 層の extension が行う。
+    var components: RGBAComponents {
         switch self {
         case .paper:
-            Color(red: 0.98, green: 0.96, blue: 0.88)
+            RGBAComponents(red: 0.98, green: 0.96, blue: 0.88)
         case .mint:
-            Color(red: 0.66, green: 0.86, blue: 0.74)
+            RGBAComponents(red: 0.66, green: 0.86, blue: 0.74)
         case .coral:
-            Color(red: 0.94, green: 0.48, blue: 0.42)
+            RGBAComponents(red: 0.94, green: 0.48, blue: 0.42)
         case .sky:
-            Color(red: 0.48, green: 0.68, blue: 0.90)
+            RGBAComponents(red: 0.48, green: 0.68, blue: 0.90)
         case .ink:
-            Color(red: 0.12, green: 0.14, blue: 0.16)
+            RGBAComponents(red: 0.12, green: 0.14, blue: 0.16)
         case .clear:
-            Color.clear
+            RGBAComponents(red: 0, green: 0, blue: 0, opacity: 0)
         case let .custom(red, green, blue, opacity):
-            Color(red: red, green: green, blue: blue, opacity: opacity)
+            RGBAComponents(red: red, green: green, blue: blue, opacity: opacity)
         }
     }
 

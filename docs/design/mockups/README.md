@@ -8,7 +8,7 @@ Claude Design プロジェクト「qool — macOS メモアプリ」と同じ内
 すべての `.html` は [build.py](build.py) から生成されます。
 
 ```sh
-python3 qool/docs/design/mockups/build.py
+python3 docs/design/mockups/build.py
 ```
 
 共通 CSS を各ファイルにインライン展開しているため、1 つのトークンを変えると
