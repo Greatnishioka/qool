@@ -54,17 +54,18 @@ qool/
 
 ## 現状の逸脱
 
-**資料として正確を期すため、現時点で上記の方針に沿っていない箇所を挙げます。**
-[クラッシュアンドビルド方針](../product/mvp.md#開発方針)なので、いま直す必要はありませんが、
-作り直しの際に繰り返さないための記録です。
+**資料として正確を期すため、方針に沿っていない箇所を挙げます。**
+[クラッシュアンドビルド方針](../product/mvp.md#開発方針)なので急いで直す必要はありませんが、
+作り直しの際に繰り返さないための記録です。解消したものは取り消し線で残しています。
 
-### Domain が SwiftUI に依存している
+### ~~Domain が SwiftUI に依存している~~（Phase 0 で解消）
 
-[`Canvas.swift`](../../qool/Domain/Models/Canvas.swift) が `import SwiftUI` し、
-`CanvasColor.swiftUIColor: Color` を持っています。**Domain が UI フレームワークに依存する形**です。
+`Canvas.swift` が `import SwiftUI` し `CanvasColor.swiftUIColor: Color` を持っていた問題は、
+**Phase 0 で解消しました。**
 
-色は Domain では RGBA の値として持ち、Presentation 側の extension で `Color` へ変換するのが本来の形です。
-StarWindow には同じ目的の [`RGBColor`](../image-editing/02-contour-extractors.md) がフレームワーク非依存で定義されており、そちらが参考になります。
+- Domain は [`RGBAComponents`](../../qool/Domain/Models/RGBAComponents.swift) として色の成分だけを持つ
+- `Color` への変換は Presentation の
+  [`CanvasColor+SwiftUI`](../../qool/Presentation/Support/CanvasColor%2BSwiftUI.swift) が担う
 
 ### DI の口がない
 

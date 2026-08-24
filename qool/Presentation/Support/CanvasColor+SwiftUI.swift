@@ -20,13 +20,19 @@ extension RGBAComponents {
     }
 
     /// `ColorPicker` などから受け取った `Color` を Domain の成分へ落とす。
-    init(_ color: Color) {
-        let nsColor = NSColor(color).usingColorSpace(.sRGB)
+    ///
+    /// 動的色やパターン色など sRGB へ変換できない色があるため failable にしている。
+    /// 変換できなかったものを黒として保存すると、色が失われたことに気づけない。
+    init?(_ color: Color) {
+        guard let sRGBColor = NSColor(color).usingColorSpace(.sRGB) else {
+            return nil
+        }
+
         self.init(
-            red: Double(nsColor?.redComponent ?? 0),
-            green: Double(nsColor?.greenComponent ?? 0),
-            blue: Double(nsColor?.blueComponent ?? 0),
-            opacity: Double(nsColor?.alphaComponent ?? 1)
+            red: Double(sRGBColor.redComponent),
+            green: Double(sRGBColor.greenComponent),
+            blue: Double(sRGBColor.blueComponent),
+            opacity: Double(sRGBColor.alphaComponent)
         )
     }
 }
