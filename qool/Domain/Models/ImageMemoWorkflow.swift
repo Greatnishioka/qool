@@ -24,7 +24,7 @@ struct ImageAdjustment: Equatable, Hashable {
     )
 }
 
-struct NormalizedPoint: Equatable, Hashable {
+struct NormalizedPoint: Equatable, Hashable, Codable {
     var x: Double
     var y: Double
 }

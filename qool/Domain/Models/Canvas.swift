@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-struct Canvas: Equatable, Hashable {
+struct Canvas: Equatable, Hashable, Codable {
     var elements: [CanvasElement]
 
     init(elements: [CanvasElement] = []) {
@@ -9,7 +9,7 @@ struct Canvas: Equatable, Hashable {
     }
 }
 
-struct CanvasElement: Identifiable, Equatable, Hashable {
+struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
     let id: UUID
     var kind: CanvasElementKind
     var frame: CGRect
@@ -58,7 +58,7 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
     }
 }
 
-struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
+struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Codable {
     let id: UUID
     var kind: CanvasElementKind
     var frame: CGRect
@@ -108,7 +108,7 @@ struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
     }
 }
 
-struct CanvasPathContour: Equatable, Hashable {
+struct CanvasPathContour: Equatable, Hashable, Codable {
     var points: [NormalizedPoint]
     var isClosed: Bool
 
@@ -118,7 +118,7 @@ struct CanvasPathContour: Equatable, Hashable {
     }
 }
 
-enum CanvasElementKind: String, CaseIterable, Identifiable, Hashable {
+enum CanvasElementKind: String, CaseIterable, Identifiable, Hashable, Codable {
     case rectangle
     case path
     case line
@@ -139,7 +139,7 @@ enum CanvasTool: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 }
 
-enum CanvasColor: Identifiable, Hashable {
+enum CanvasColor: Identifiable, Hashable, Codable {
     case paper
     case mint
     case coral

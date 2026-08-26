@@ -26,10 +26,16 @@ final class AppRootViewModel: ObservableObject {
         reload()
     }
 
+    /// 実アプリ用の組み立て。保存先はディスク。
+    ///
+    /// テストやプレビューでは `InMemoryMemoRepository` を渡した
+    /// `bootstrap(repository:)` を使ってください。
     static func bootstrap() -> AppRootViewModel {
-        let repository = InMemoryMemoRepository()
+        bootstrap(repository: FileMemoRepository())
+    }
 
-        return AppRootViewModel(
+    static func bootstrap(repository: MemoRepository) -> AppRootViewModel {
+        AppRootViewModel(
             loadMemosUseCase: LoadMemosUseCase(repository: repository),
             createMemoUseCase: CreateMemoUseCase(repository: repository),
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
