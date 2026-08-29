@@ -3,12 +3,12 @@ import Foundation
 import Testing
 @testable import qool
 
-/// [FileMemoRepository](../qool/Infrastructure/Persistence/FileMemoRepository.swift) の検証。
+/// [FileMemoRepositoryInfrastructure](../qool/Infrastructure/Persistence/FileMemoRepositoryInfrastructure.swift) の検証。
 /// 実際のファイルシステムを使い、テストごとに一時ディレクトリを作って捨てます。
-struct FileMemoRepositoryTests {
+struct FileMemoRepositoryInfrastructureTests {
     /// 一時ディレクトリを用意し、処理の後で必ず片付ける。
     private func withTemporaryRepository(
-        _ body: (FileMemoRepository, URL) async throws -> Void
+        _ body: (FileMemoRepositoryInfrastructure, URL) async throws -> Void
     ) async throws {
         let root = URL.temporaryDirectory.appending(
             path: "qool-tests-\(UUID().uuidString)",
@@ -16,7 +16,7 @@ struct FileMemoRepositoryTests {
         )
         defer { try? FileManager.default.removeItem(at: root) }
 
-        try await body(FileMemoRepository(rootDirectory: root), root)
+        try await body(FileMemoRepositoryInfrastructure(rootDirectory: root), root)
     }
 
     private func memo(title: String, updatedAt: Date = Date()) -> Memo {
@@ -152,7 +152,7 @@ struct FileMemoRepositoryTests {
             try FileManager.default.createDirectory(at: futureDirectory, withIntermediateDirectories: true)
             let json = """
             {
-              "schemaVersion": \(FileMemoRepository.schemaVersion + 1),
+              "schemaVersion": \(FileMemoRepositoryInfrastructure.schemaVersion + 1),
               "memo": {
                 "id": "\(UUID().uuidString)",
                 "title": "未来のメモ",
@@ -228,7 +228,7 @@ struct FileMemoRepositoryTests {
                 .appending(path: "memo.json")
             let text = try String(contentsOf: fileURL, encoding: .utf8)
 
-            #expect(text.contains("\"schemaVersion\" : \(FileMemoRepository.schemaVersion)"))
+            #expect(text.contains("\"schemaVersion\" : \(FileMemoRepositoryInfrastructure.schemaVersion)"))
             #expect(text.contains("\"title\" : \"読める\""))
             #expect(text.contains("\"updatedAt\""))
             // 日時が数値ではなく ISO8601 の文字列であること。

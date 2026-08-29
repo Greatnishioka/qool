@@ -12,8 +12,9 @@
 | 4 | [features/](features/README.md) | **現在の qool の実装**。画面ごとの機能・仕様・制約 |
 | 5 | [image-editing/](image-editing/README.md) | **取り込み予定の画像編集機能**。別プロジェクト StarWindow の仕様と移植計画 |
 | 6 | [architecture/mvvm-clean-architecture.md](architecture/mvvm-clean-architecture.md) | レイヤ構成と依存方向、現状の逸脱 |
-| 7 | [architecture/persistence.md](architecture/persistence.md) | **永続化の設計**。方式比較、画像アセットの持ち方、独自拡張子 `.qool` |
-| 8 | [open-questions.md](open-questions.md) | **未確定事項の一覧**。いつ決めればよいか、進行をブロックするか |
+| 7 | [architecture/code-organization.md](architecture/code-organization.md) | **コード配置と命名の規約**。1 ファイル 1 型、`Enums/`、`~Protocol` / `~Infrastructure`、コメントの粒度 |
+| 8 | [architecture/persistence.md](architecture/persistence.md) | **永続化の設計**。方式比較、画像アセットの持ち方、独自拡張子 `.qool` |
+| 9 | [open-questions.md](open-questions.md) | **未確定事項の一覧**。いつ決めればよいか、進行をブロックするか |
 | — | [spec.md](spec.md) | 最初期の画面仕様メモ（原典。現在は features/ が詳細版） |
 
 ## 全体像

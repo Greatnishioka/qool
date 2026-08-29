@@ -3,13 +3,13 @@ import Synchronization
 import Testing
 @testable import qool
 
-/// [DebouncedMemoRepository](../qool/Infrastructure/Persistence/DebouncedMemoRepository.swift) の検証。
+/// [DebouncedMemoRepositoryInfrastructure](../qool/Infrastructure/Persistence/DebouncedMemoRepositoryInfrastructure.swift) の検証。
 ///
 /// **書き込みが遅れる仕組みなので、失われる条件も明示的にテストします。**
 @MainActor
-struct DebouncedMemoRepositoryTests {
+struct DebouncedMemoRepositoryInfrastructureTests {
     /// 書き込み回数を数える土台。
-    private final class CountingMemoRepository: MemoRepository {
+    private final class CountingMemoRepository: MemoRepositoryProtocol {
         private struct State {
             var storage: [Memo] = []
             var saveCallCount = 0
@@ -62,10 +62,10 @@ struct DebouncedMemoRepositoryTests {
     /// テストが時間に依存しないよう、既定では十分長い間隔にして `flush()` で確定させます。
     private func makeRepository(
         interval: Duration = .seconds(30)
-    ) -> (DebouncedMemoRepository, CountingMemoRepository) {
+    ) -> (DebouncedMemoRepositoryInfrastructure, CountingMemoRepository) {
         let base = CountingMemoRepository()
 
-        return (DebouncedMemoRepository(wrapping: base, interval: interval), base)
+        return (DebouncedMemoRepositoryInfrastructure(wrapping: base, interval: interval), base)
     }
 
     // MARK: - まとめ書き
@@ -237,7 +237,7 @@ struct DebouncedMemoRepositoryTests {
         let base = CountingMemoRepository()
 
         do {
-            let repository = DebouncedMemoRepository(wrapping: base, interval: .seconds(30))
+            let repository = DebouncedMemoRepositoryInfrastructure(wrapping: base, interval: .seconds(30))
             try await repository.save(Memo(title: "失われる"))
         }
 

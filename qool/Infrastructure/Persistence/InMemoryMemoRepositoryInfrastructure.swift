@@ -3,10 +3,10 @@ import Foundation
 import Synchronization
 
 /// テストとプレビュー用。可変状態は `Mutex` で守ります。
-nonisolated final class InMemoryMemoRepository: MemoRepository {
+nonisolated final class InMemoryMemoRepositoryInfrastructure: MemoRepositoryProtocol {
     private let memos: Mutex<[Memo]>
 
-    init(seedMemos: [Memo] = InMemoryMemoRepository.defaultSeedMemos) {
+    init(seedMemos: [Memo] = InMemoryMemoRepositoryInfrastructure.defaultSeedMemos) {
         memos = Mutex(seedMemos)
     }
 

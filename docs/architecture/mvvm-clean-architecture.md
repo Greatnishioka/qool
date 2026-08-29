@@ -14,30 +14,42 @@ View  →  ViewModel  →  UseCase  →  Domain
 
 ## ディレクトリ構成
 
-現在の構成と、[画像編集機能](../image-editing/README.md)を取り込んだ後の想定です。
+型の配置と命名の規約は [コード配置と命名の規約](code-organization.md) が定義しています。
+ここではレイヤの対応だけを示します。
 
 ```text
 qool/
+  App/              QoolApp（@main） / AppDelegate（合成ルート）
   Presentation/
-    Views/            メモ一覧 / キャンバス / 画像切り抜き / 画像調整
-    ViewModels/       AppRootViewModel / CanvasViewModel
+    Enums/          MemoPersistenceStatus
+    Views/          メモパネル / キャンバス / 画像切り抜き / 画像調整（後者 3 つは未実装）
+    ViewModels/     AppRootViewModel / CanvasViewModel
+    Support/        CanvasColor+SwiftUI / RGBAComponents+SwiftUI
   Application/
-    UseCases/         CanvasEditingUseCases / CanvasUnionUseCase / MemoUseCases
-                      + 輪郭候補の抽出 / マスク編集 / 切り抜き画像の書き出し（追加予定）
+    UseCases/
+      Memo/         Load / Create / Save / FlushMemos / ObserveWriteStates
+      Canvas/       Move / Delete / Update / UpdateElements / UnionCanvasElements
+                    + 輪郭候補の抽出 / マスク編集 / 切り抜き画像の書き出し（追加予定）
   Domain/
-    Models/           Memo / Canvas / CanvasElement / ImageMemoWorkflow
-                      + ContourCandidate / RasterContourMask / RasterSelectionMask（追加予定）
-    Repositories/     MemoRepository（protocol）
-                      + ImageAssetRepository（追加予定）
-    Services/         CanvasElementFactory / CanvasSelectionService / CanvasDraftElementBuilder
-                      + ContourSmoother / ContourPadding / ContourCandidateSelector
-                        / ContourQualityValidator / RectangularGuideContour / CurvePathBuilder（追加予定）
+    Enums/          CanvasElementKind / CanvasTool / CanvasColor / MemoWriteState
+    Models/         Memo / Canvas / CanvasElement / CanvasElementSnapshot
+                    / CanvasPathContour / NormalizedPoint / RGBAComponents
+                    / ImageCutoutDraft / ImageAdjustment
+                    + ContourCandidate / RasterContourMask / RasterSelectionMask（追加予定）
+    Coding/         各モデルの手書き Codable 実装
+    Repositories/   MemoRepositoryProtocol / MemoWriteMonitoringProtocol
+                    / ImageAssetRepositoryProtocol
+    Services/       CanvasElementFactory / CanvasSelectionService / CanvasDraftElementBuilder
+                    + ContourSmoother / ContourPadding / ContourCandidateSelector
+                      / ContourQualityValidator / RectangularGuideContour / CurvePathBuilder（追加予定）
   Infrastructure/
-    Persistence/      InMemoryMemoRepository（→ ファイル永続化へ差し替え予定）
-    Vision/           SubjectMaskExtractor / PreprocessedContourExtractor / ContourDetector（追加予定）
-    CoreImage/        GuidedBackgroundContourExtractor / LineColorContourExtractor
-                      / ColoredPaperRectangleExtractor / CutoutImageRenderer（追加予定）
-    AppKit/           フローティングメモウィンドウ / グローバルホットキー（追加予定）
+    Enums/          MemoWriteFailure
+    Persistence/    FileMemoRepositoryInfrastructure / InMemoryMemoRepositoryInfrastructure
+                    / DebouncedMemoRepositoryInfrastructure
+    Vision/         SubjectMaskExtractor / PreprocessedContourExtractor / ContourDetector（追加予定）
+    CoreImage/      GuidedBackgroundContourExtractor / LineColorContourExtractor
+                    / ColoredPaperRectangleExtractor / CutoutImageRenderer（追加予定）
+    AppKit/         フローティングメモウィンドウ / グローバルホットキー（追加予定）
 ```
 
 追加予定のものは StarWindow 側で同じレイヤ分割がすでに済んでいるため、
@@ -69,17 +81,21 @@ qool/
 
 ### DI の口がない
 
-- `AppRootViewModel.bootstrap()` が `InMemoryMemoRepository` を直接生成している
+- `AppRootViewModel.bootstrap()` がリポジトリの組み立てを直接持っている
 - `CanvasViewModel` の `init` が UseCase / Service をデフォルト引数で自前生成している
 
 差し替えは可能な形にはなっていますが、組み立てを一箇所に集約する仕組みはありません。
-永続化を実装に差し替える段で必要になります。
 
 ### ViewModel が Domain サービスを直接呼んでいる
 
 `CanvasViewModel` は `CanvasElementFactory` / `CanvasSelectionService` / `CanvasDraftElementBuilder` を
 UseCase を経由せず直接使っています。図形の選択・描画といった純粋な操作なので実害は小さいものの、
 `View → ViewModel → UseCase → Domain` の原則からは外れています。
+
+### ~~`any` の表記ゆれ~~（解消）
+
+`SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY` を有効にしたため、
+存在型に `any` を付け忘れるとコンパイラが指摘します。
 
 ### StarWindow 側の import
 

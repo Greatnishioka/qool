@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct AppRootViewModelTests {
     /// 呼び出し回数を数えるリポジトリ。
-    private final class CountingMemoRepository: MemoRepository {
+    private final class CountingMemoRepository: MemoRepositoryProtocol {
         private struct State {
             var storage: [Memo]
             var loadCallCount = 0
@@ -184,7 +184,7 @@ struct AppRootViewModelTests {
     // MARK: - 失敗の扱い
     //
     // 状態表示の検証は PersistenceIntegrationTests へ移しました。
-    // ここで偽リポジトリを直接渡すと、本番の DebouncedMemoRepository を通らないため
+    // ここで偽リポジトリを直接渡すと、本番の DebouncedMemoRepositoryInfrastructure を通らないため
     // 「テストは通るが実機では表示されない」状態を見逃します（実際に見逃しました）。
 
     @Test func 保存が成功していれば何も表示しない() async throws {
