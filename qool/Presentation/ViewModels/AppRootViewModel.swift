@@ -3,79 +3,215 @@ import Foundation
 
 @MainActor
 final class AppRootViewModel: ObservableObject {
+    /// 永続化の状態。画面に出す内容を決めるために使います。
+    enum PersistenceStatus: Equatable {
+        /// 保存できている。何も表示しません。
+        case ok
+        /// 保存に失敗し、自動で再試行している。
+        case retrying
+        /// 再試行しても失敗が続いている。
+        case failing
+    }
+
+    /// この回数を超えて再試行が続いたら、表示を「原因を確認してほしい」側へ切り替えます。
+    private static let attemptsBeforeEscalation = 2
+
     @Published private(set) var memos: [Memo] = []
     @Published var selectedMemo: Memo?
     @Published var cutoutDraft = ImageCutoutDraft()
     @Published var imageAdjustment = ImageAdjustment.default
 
+    /// 保存の状態。失敗しているときだけ画面に出します。
+    @Published private(set) var persistenceStatus: PersistenceStatus = .ok
+
+    /// 一覧を読み込めなかった。**「メモが 0 件」と区別する**ために持ちます。
+    /// 同じ空状態を出すと、データが消えたと誤解されます。
+    @Published private(set) var didFailToLoad = false
+
     private let loadMemosUseCase: LoadMemosUseCase
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
+    private let flushMemosUseCase: FlushMemosUseCase
+    private let observeWriteStatesUseCase: ObserveWriteStatesUseCase
     private let elementFactory: CanvasElementFactory
+    private var writeStateTask: Task<Void, Never>?
 
     init(
         loadMemosUseCase: LoadMemosUseCase,
         createMemoUseCase: CreateMemoUseCase,
         saveMemoUseCase: SaveMemoUseCase,
+        flushMemosUseCase: FlushMemosUseCase,
+        observeWriteStatesUseCase: ObserveWriteStatesUseCase,
         elementFactory: CanvasElementFactory
     ) {
         self.loadMemosUseCase = loadMemosUseCase
         self.createMemoUseCase = createMemoUseCase
         self.saveMemoUseCase = saveMemoUseCase
+        self.flushMemosUseCase = flushMemosUseCase
+        self.observeWriteStatesUseCase = observeWriteStatesUseCase
         self.elementFactory = elementFactory
         reload()
+        observeWriteStates()
     }
 
-    static func bootstrap() -> AppRootViewModel {
-        let repository = InMemoryMemoRepository()
+    deinit {
+        writeStateTask?.cancel()
+    }
 
-        return AppRootViewModel(
+    /// 保存の状態は**実際の書き込み結果からのみ**更新します。
+    ///
+    /// 保存要求を受け付けた時点で成功扱いにすると、まとめ書きの中で失敗しても
+    /// 画面は正常なままになります。
+    private func observeWriteStates() {
+        writeStateTask = Task { [weak self] in
+            guard let states = self?.observeWriteStatesUseCase.execute() else {
+                return
+            }
+
+            for await state in states {
+                switch state {
+                case .idle:
+                    self?.persistenceStatus = .ok
+                case let .retrying(attempt):
+                    self?.persistenceStatus = attempt >= Self.attemptsBeforeEscalation ? .failing : .retrying
+                case .failed:
+                    self?.persistenceStatus = .failing
+                }
+            }
+        }
+    }
+
+    /// 実アプリ用の組み立て。保存先はディスク。
+    ///
+    /// テストやプレビューでは `InMemoryMemoRepository` を渡した
+    /// `bootstrap(repository:)` を使ってください。
+    static func bootstrap() -> AppRootViewModel {
+        // まとめ書きを挟む。flush はアプリ側で呼ぶ必要があります。
+        let repository = DebouncedMemoRepository(wrapping: FileMemoRepository())
+
+        return bootstrap(repository: repository, monitor: repository)
+    }
+
+    static func bootstrap(
+        repository: MemoRepository,
+        monitor: (any MemoWriteMonitoring)? = nil
+    ) -> AppRootViewModel {
+        AppRootViewModel(
             loadMemosUseCase: LoadMemosUseCase(repository: repository),
             createMemoUseCase: CreateMemoUseCase(repository: repository),
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
+            flushMemosUseCase: FlushMemosUseCase(repository: repository),
+            observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
             elementFactory: CanvasElementFactory()
         )
     }
 
+    /// 全メモをディスクから読み直す。
+    ///
+    /// **起動時と、読み込み失敗からの再試行でのみ呼びます。** 保存のたびに呼ぶと、
+    /// 1 件の書き込みに対して全メモの読み込みと復号が走ります。
+    /// 保存後の一覧更新は `apply(_:)` がメモリ上で行います。
     func reload() {
-        memos = loadMemosUseCase.execute()
+        do {
+            memos = try loadMemosUseCase.execute()
+            didFailToLoad = false
+        } catch {
+            // 読めなかったときに空配列を入れると「メモが 0 件」と区別できません。
+            // 手元の内容はそのまま残します。
+            didFailToLoad = true
+        }
     }
 
-    func createMemo() -> Memo {
-        let memo = createMemoUseCase.execute()
-        reload()
-        selectedMemo = memo
-        return memo
+    func createMemo() async -> Memo? {
+        do {
+            let memo = try await createMemoUseCase.execute()
+            apply(memo)
+            selectedMemo = memo
+
+            return memo
+        } catch {
+            return nil
+        }
     }
 
     func open(_ memo: Memo) {
         selectedMemo = memo
     }
 
-    func addElement(using tool: CanvasTool) {
+    func addElement(using tool: CanvasTool) async {
         guard var memo = selectedMemo, let element = elementFactory.makeElement(for: tool) else {
             return
         }
 
         memo.canvas.elements.append(element)
-        selectedMemo = memo
-        saveMemoUseCase.execute(memo)
-        reload()
+        await saveMemo(memo)
     }
 
-    func saveMemo(_ memo: Memo) {
-        selectedMemo = memo
-        saveMemoUseCase.execute(memo)
-        reload()
+    func saveMemo(_ memo: Memo) async {
+        do {
+            // 戻り値を使うのが要点。`execute` が更新日時を差し替えるため、
+            // 引数の `memo` をそのまま一覧へ入れると更新日時が古いままになります。
+            let savedMemo = try await saveMemoUseCase.execute(memo)
+
+            selectedMemo = savedMemo
+            apply(savedMemo)
+        } catch {
+            // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
+            selectedMemo = memo
+            apply(memo)
+        }
     }
 
     func updateAdjustment(_ adjustment: ImageAdjustment) {
         imageAdjustment = adjustment
     }
 
-    func commitImageMemo() {
-        addElement(using: .image)
+    func commitImageMemo() async {
+        await addElement(using: .image)
         cutoutDraft = ImageCutoutDraft()
         imageAdjustment = .default
+    }
+
+    /// 保留している書き込みを確定する。
+    ///
+    /// **アプリ終了時に必ず呼んでください。** 呼び忘れると、まとめ書き待ちの編集が失われます。
+    ///
+    /// - Returns: すべて書けたら `true`。**終了してよいかの判断に使います。**
+    @discardableResult
+    func flush() async -> Bool {
+        do {
+            try await flushMemosUseCase.execute()
+
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// 画面の「再試行」から呼びます。
+    func retryFailedWork() async {
+        if didFailToLoad {
+            reload()
+        }
+
+        _ = await flush()
+    }
+
+    // MARK: -
+
+    /// 保存済みのメモを一覧へ反映する。既にあれば置き換え、無ければ追加する。
+    ///
+    /// 並び順は `MemoRepository.loadMemos()` と同じ **更新日時の降順**に揃えます。
+    /// ここがずれると、再起動の前後で一覧の並びが変わってしまいます。
+    private func apply(_ memo: Memo) {
+        var updatedMemos = memos
+
+        if let index = updatedMemos.firstIndex(where: { $0.id == memo.id }) {
+            updatedMemos[index] = memo
+        } else {
+            updatedMemos.append(memo)
+        }
+
+        memos = updatedMemos.sorted { $0.updatedAt > $1.updatedAt }
     }
 }

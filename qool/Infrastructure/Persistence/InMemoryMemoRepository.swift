@@ -1,27 +1,31 @@
 import CoreGraphics
 import Foundation
+import Synchronization
 
-final class InMemoryMemoRepository: MemoRepository {
-    private var memos: [Memo]
+/// テストとプレビュー用。可変状態は `Mutex` で守ります。
+nonisolated final class InMemoryMemoRepository: MemoRepository {
+    private let memos: Mutex<[Memo]>
 
     init(seedMemos: [Memo] = InMemoryMemoRepository.defaultSeedMemos) {
-        self.memos = seedMemos
+        memos = Mutex(seedMemos)
     }
 
-    func loadMemos() -> [Memo] {
-        memos.sorted { $0.updatedAt > $1.updatedAt }
+    func loadMemos() throws -> [Memo] {
+        memos.withLock { $0.sorted { $0.updatedAt > $1.updatedAt } }
     }
 
-    func save(_ memo: Memo) {
-        if let index = memos.firstIndex(where: { $0.id == memo.id }) {
-            memos[index] = memo
-        } else {
-            memos.append(memo)
+    func save(_ memo: Memo) async throws {
+        memos.withLock { memos in
+            if let index = memos.firstIndex(where: { $0.id == memo.id }) {
+                memos[index] = memo
+            } else {
+                memos.append(memo)
+            }
         }
     }
 
-    func delete(id: Memo.ID) {
-        memos.removeAll { $0.id == id }
+    func delete(id: Memo.ID) async throws {
+        memos.withLock { $0.removeAll { $0.id == id } }
     }
 
     private static let defaultSeedMemos: [Memo] = [

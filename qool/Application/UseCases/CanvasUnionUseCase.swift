@@ -2,8 +2,8 @@ import CoreGraphics
 import Foundation
 import iOverlay
 
-struct CanvasUnionUseCase {
-    nonisolated init() {}
+nonisolated struct CanvasUnionUseCase {
+    init() {}
 
     func unionElement(
         from elements: [CanvasElement],

@@ -3,9 +3,9 @@
 画像をパスで囲んで、メモに貼る範囲を決める画面です。旧プロジェクトから移植予定の機能で、
 **現状の実装はフロー確認用のモック**です。
 
-- View: [`ImageCutoutView`](../../Presentation/Views/ImageCutoutView.swift)
-- プレビュー: [`CutoutPreview`](../../Presentation/Views/Components/CutoutPreview.swift)
-- モデル: `ImageCutoutDraft` / `NormalizedPoint`（[ImageMemoWorkflow.swift](../../Domain/Models/ImageMemoWorkflow.swift)）
+- View: [`ImageCutoutView`](../../qool/Presentation/Views/ImageCutoutView.swift)
+- プレビュー: [`CutoutPreview`](../../qool/Presentation/Views/Components/CutoutPreview.swift)
+- モデル: `ImageCutoutDraft` / `NormalizedPoint`（[ImageMemoWorkflow.swift](../../qool/Domain/Models/ImageMemoWorkflow.swift)）
 
 ## 導線
 

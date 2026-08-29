@@ -50,8 +50,8 @@ StarWindow は最初から macOS / AppKit で書かれているため、**この
 | qool の現状 | 対応 |
 |-------------|------|
 | `SDKROOT = iphoneos` / `TARGETED_DEVICE_FAMILY = "1,2"` | **macOS 専用プロジェクトとして作り直す**（マルチプラットフォーム化はしない） |
-| [`CanvasSurface`](../../Presentation/Views/Components/CanvasSurface.swift) の `import UIKit` / `UIPress` / `GameController` | Shift キー検出は macOS では `NSEvent.modifierFlags` で素直に取れる |
-| [`CanvasPropertiesPanel`](../../Presentation/Views/Components/CanvasPropertiesPanel.swift) の `import UIKit`（`UIColor` での色成分取得） | `NSColor` へ置き換え |
+| [`CanvasSurface`](../../qool/Presentation/Views/Components/CanvasSurface.swift) の `import UIKit` / `UIPress` / `GameController` | Shift キー検出は macOS では `NSEvent.modifierFlags` で素直に取れる |
+| [`CanvasPropertiesPanel`](../../qool/Presentation/Views/Components/CanvasPropertiesPanel.swift) の `import UIKit`（`UIColor` での色成分取得） | `NSColor` へ置き換え |
 | ツールドックの下部固定レイアウト | タッチ前提の設計。Mac ではツールバー / インスペクタ形式へ見直し |
 | `Color(.systemGroupedBackground)` などの UIKit セマンティックカラー | AppKit の対応する色へ |
 
@@ -113,7 +113,7 @@ qool の `ImageAdjustment` にしかない概念はありません。**StarWindo
 
 > 方式の比較と推奨案は [architecture/persistence.md](../architecture/persistence.md) にまとめています。
 
-qool のリポジトリは [`InMemoryMemoRepository`](../../Infrastructure/Persistence/InMemoryMemoRepository.swift) のみで、
+qool のリポジトリは [`InMemoryMemoRepository`](../../qool/Infrastructure/Persistence/InMemoryMemoRepository.swift) のみで、
 アプリを閉じると消えます。画像を扱うようになると:
 
 - 元画像 / 切り抜き結果 / マスクをファイルとして保存する仕組みが要る

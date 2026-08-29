@@ -1,8 +1,8 @@
 import CoreGraphics
 import Foundation
 
-struct CanvasSelectionService {
-    nonisolated init() {}
+nonisolated struct CanvasSelectionService {
+    init() {}
 
     func selectedElement(
         in elements: [CanvasElement],

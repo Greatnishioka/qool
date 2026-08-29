@@ -1,7 +1,7 @@
+import CoreGraphics
 import Foundation
-import SwiftUI
 
-struct Canvas: Equatable, Hashable {
+nonisolated struct Canvas: Equatable, Hashable, Codable {
     var elements: [CanvasElement]
 
     init(elements: [CanvasElement] = []) {
@@ -9,7 +9,7 @@ struct Canvas: Equatable, Hashable {
     }
 }
 
-struct CanvasElement: Identifiable, Equatable, Hashable {
+nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
     let id: UUID
     var kind: CanvasElementKind
     var frame: CGRect
@@ -25,7 +25,7 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
     var isClosedPath: Bool
     var unionSourceElements: [CanvasElementSnapshot]
 
-    nonisolated init(
+    init(
         id: UUID = UUID(),
         kind: CanvasElementKind,
         frame: CGRect,
@@ -58,7 +58,7 @@ struct CanvasElement: Identifiable, Equatable, Hashable {
     }
 }
 
-struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
+nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Codable {
     let id: UUID
     var kind: CanvasElementKind
     var frame: CGRect
@@ -73,7 +73,7 @@ struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
     var pathContours: [CanvasPathContour]
     var isClosedPath: Bool
 
-    nonisolated init(element: CanvasElement) {
+    init(element: CanvasElement) {
         self.id = element.id
         self.kind = element.kind
         self.frame = element.frame
@@ -89,7 +89,7 @@ struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
         self.isClosedPath = element.isClosedPath
     }
 
-    nonisolated var element: CanvasElement {
+    var element: CanvasElement {
         CanvasElement(
             id: id,
             kind: kind,
@@ -108,7 +108,7 @@ struct CanvasElementSnapshot: Identifiable, Equatable, Hashable {
     }
 }
 
-struct CanvasPathContour: Equatable, Hashable {
+nonisolated struct CanvasPathContour: Equatable, Hashable, Codable {
     var points: [NormalizedPoint]
     var isClosed: Bool
 
@@ -118,7 +118,7 @@ struct CanvasPathContour: Equatable, Hashable {
     }
 }
 
-enum CanvasElementKind: String, CaseIterable, Identifiable, Hashable {
+nonisolated enum CanvasElementKind: String, CaseIterable, Identifiable, Hashable, Codable {
     case rectangle
     case path
     case line
@@ -128,7 +128,7 @@ enum CanvasElementKind: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 }
 
-enum CanvasTool: String, CaseIterable, Identifiable, Hashable {
+nonisolated enum CanvasTool: String, CaseIterable, Identifiable, Hashable {
     case select = "選択"
     case rectangle = "矩形"
     case path = "パス"
@@ -139,14 +139,17 @@ enum CanvasTool: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 }
 
-enum CanvasColor: Identifiable, Hashable {
+nonisolated enum CanvasColor: Identifiable, Hashable, Codable {
     case paper
     case mint
     case coral
     case sky
     case ink
     case clear
-    case custom(red: Double, green: Double, blue: Double, opacity: Double)
+    /// 任意の色。成分は `RGBAComponents` が `0...1` に保つため、
+    /// **範囲外や NaN を持つ状態は表現できません。**
+    /// 生の `Double` を持っていた頃は、保存時に丸められて往復で値が変わっていました。
+    case custom(RGBAComponents)
 
     var id: String {
         switch self {
@@ -162,27 +165,29 @@ enum CanvasColor: Identifiable, Hashable {
             "ink"
         case .clear:
             "clear"
-        case let .custom(red, green, blue, opacity):
-            "custom-\(red)-\(green)-\(blue)-\(opacity)"
+        case let .custom(components):
+            "custom-\(components.red)-\(components.green)-\(components.blue)-\(components.opacity)"
         }
     }
 
-    var swiftUIColor: Color {
+    /// 色の実体。UI フレームワークには依存しない。
+    /// SwiftUI の `Color` への変換は Presentation 層の extension が行う。
+    var components: RGBAComponents {
         switch self {
         case .paper:
-            Color(red: 0.98, green: 0.96, blue: 0.88)
+            RGBAComponents(red: 0.98, green: 0.96, blue: 0.88)
         case .mint:
-            Color(red: 0.66, green: 0.86, blue: 0.74)
+            RGBAComponents(red: 0.66, green: 0.86, blue: 0.74)
         case .coral:
-            Color(red: 0.94, green: 0.48, blue: 0.42)
+            RGBAComponents(red: 0.94, green: 0.48, blue: 0.42)
         case .sky:
-            Color(red: 0.48, green: 0.68, blue: 0.90)
+            RGBAComponents(red: 0.48, green: 0.68, blue: 0.90)
         case .ink:
-            Color(red: 0.12, green: 0.14, blue: 0.16)
+            RGBAComponents(red: 0.12, green: 0.14, blue: 0.16)
         case .clear:
-            Color.clear
-        case let .custom(red, green, blue, opacity):
-            Color(red: red, green: green, blue: blue, opacity: opacity)
+            RGBAComponents(red: 0, green: 0, blue: 0, opacity: 0)
+        case let .custom(components):
+            components
         }
     }
 

@@ -2,7 +2,7 @@
 
 **ステータス: 方式は A（ファイル + JSON）で決定。** 細部の未確定事項は[決めること](#決めること)を参照。
 
-現状のリポジトリ実装は [`InMemoryMemoRepository`](../../Infrastructure/Persistence/InMemoryMemoRepository.swift) だけで、
+現状のリポジトリ実装は [`InMemoryMemoRepository`](../../qool/Infrastructure/Persistence/InMemoryMemoRepository.swift) だけで、
 アプリを終了すると内容が消えます。[MVP](../product/mvp.md#mvp-のゴール) の
 「作ったメモをホットキーで呼び出す」は永続化なしには成立しないため、**MVP の必須要素**です。
 方式は決まったので、あとは実装するだけの状態です。

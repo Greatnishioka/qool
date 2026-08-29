@@ -1,6 +1,6 @@
 """モックアップの生成スクリプト。
 
-    python3 qool/docs/design/mockups/build.py
+    python3 docs/design/mockups/build.py
 
 すべての .html はこのファイルから生成される。HTML を直接編集せず、ここを直すこと。
 共通 CSS を各ファイルにインライン展開しているのは、Claude Design のカード描画で

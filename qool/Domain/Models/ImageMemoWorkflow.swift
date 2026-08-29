@@ -1,6 +1,6 @@
 import Foundation
 
-struct ImageCutoutDraft: Equatable, Hashable {
+nonisolated struct ImageCutoutDraft: Equatable, Hashable {
     var pathPoints: [NormalizedPoint]
     var sourceDescription: String
 
@@ -10,7 +10,7 @@ struct ImageCutoutDraft: Equatable, Hashable {
     }
 }
 
-struct ImageAdjustment: Equatable, Hashable {
+nonisolated struct ImageAdjustment: Equatable, Hashable {
     var opacity: Double
     var brightness: Double
     var padding: Double
@@ -24,7 +24,7 @@ struct ImageAdjustment: Equatable, Hashable {
     )
 }
 
-struct NormalizedPoint: Equatable, Hashable {
+nonisolated struct NormalizedPoint: Equatable, Hashable, Codable {
     var x: Double
     var y: Double
 }

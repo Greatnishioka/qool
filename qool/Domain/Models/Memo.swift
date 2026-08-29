@@ -1,6 +1,6 @@
 import Foundation
 
-struct Memo: Identifiable, Equatable, Hashable {
+nonisolated struct Memo: Identifiable, Equatable, Hashable, Codable {
     let id: UUID
     var title: String
     var updatedAt: Date

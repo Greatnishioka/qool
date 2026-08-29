@@ -1,6 +1,6 @@
 import CoreGraphics
 
-struct CanvasElementFactory {
+nonisolated struct CanvasElementFactory {
 
     /**
     * 指定されたツールに基づいて、キャンバス要素を作成します。

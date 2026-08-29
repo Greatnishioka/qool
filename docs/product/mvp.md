@@ -53,8 +53,8 @@ MVP は次の 3 つが揃った状態と定義します。
 
 - `SDKROOT = iphoneos`、`TARGETED_DEVICE_FAMILY = "1,2"`（iPhone + iPad）
 - Mac Catalyst / macOS ターゲットは未設定
-- [`CanvasSurface`](../../Presentation/Views/Components/CanvasSurface.swift) と
-  [`CanvasPropertiesPanel`](../../Presentation/Views/Components/CanvasPropertiesPanel.swift) が `UIKit` に依存
+- [`CanvasSurface`](../../qool/Presentation/Views/Components/CanvasSurface.swift) と
+  [`CanvasPropertiesPanel`](../../qool/Presentation/Views/Components/CanvasPropertiesPanel.swift) が `UIKit` に依存
 - `CanvasSurface` は Shift キー検出に `GameController` / `UIPress` を使用
 
 一方 MVP は「Mac 上で使えるメモ」「キーバインドで呼び出す」であり、**macOS が主戦場**です。
@@ -86,7 +86,7 @@ UI に **Liquid Glass**（`.glassEffect(in:)` / `GlassEffectContainer`）を採�
 **macOS 26 以上**が最低要件になります（[理由](../design/screens.md#マテリアルliquid-glass)）。
 
 - Vision のモダン API（15 以上）の要件も当然満たします
-- 既存の [`CanvasToolDock`](../../Presentation/Views/Components/CanvasToolDock.swift) が使っている
+- 既存の [`CanvasToolDock`](../../qool/Presentation/Views/Components/CanvasToolDock.swift) が使っている
   `glassEffect` の考え方は、そのまま macOS に持ち込めます
 
 ### 未確定

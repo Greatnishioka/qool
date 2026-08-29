@@ -2,10 +2,10 @@
 
 作成済みメモを一覧し、既存メモを開く／新規メモを作るための起点となる画面です。
 
-- View: [`MemoListView`](../../Presentation/Views/MemoListView.swift)
-- 行コンポーネント: [`MemoRowView`](../../Presentation/Views/Components/MemoRowView.swift)
-- ViewModel: [`AppRootViewModel`](../../Presentation/ViewModels/AppRootViewModel.swift)
-- UseCase: `LoadMemosUseCase` / `CreateMemoUseCase`（[MemoUseCases.swift](../../Application/UseCases/MemoUseCases.swift)）
+- View: [`MemoListView`](../../qool/Presentation/Views/MemoListView.swift)
+- 行コンポーネント: [`MemoRowView`](../../qool/Presentation/Views/Components/MemoRowView.swift)
+- ViewModel: [`AppRootViewModel`](../../qool/Presentation/ViewModels/AppRootViewModel.swift)
+- UseCase: `LoadMemosUseCase` / `CreateMemoUseCase`（[MemoUseCases.swift](../../qool/Application/UseCases/MemoUseCases.swift)）
 
 ## 画面構成
 
