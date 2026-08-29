@@ -6,6 +6,8 @@
 
 対象は既存の 22 ファイル / 45 型。移行手順は末尾の[移行計画](#移行計画)にある。
 
+**移行は完了している。** 3 つのコミットで適用済みで、以降はこの規約に従って書く。
+
 ## 決定
 
 | # | 規約 | 適用範囲 |
@@ -30,7 +32,8 @@
 `CanvasElementKind`（Domain）と `MemoPersistenceStatus`（Presentation）が同居し、
 **Presentation の enum を Domain が参照しても、ディレクトリを見ただけでは違反に見えなくなる。**
 依存方向はこのプロジェクトで唯一コンパイラが守ってくれない制約なので、
-[Swift Package への切り出し](../open-questions.md)を保留している間は、ディレクトリで見えるようにしておく。
+Domain のローカル Swift Package 化（境界を強制できるが全メンバーに `public` が要る）を
+保留している間は、ディレクトリで見えるようにしておく。
 
 ### 移す enum
 
@@ -137,8 +140,7 @@ App/QoolApp.swift  App/AppDelegate.swift
 ファイル名も型名に合わせる。テストの fake 3 個（`CountingMemoRepository` ×2 / `ControllableRepository`）は
 準拠先の記述が変わるだけで、名前は変えない。
 
-副作用として `any MemoRepository` の表記ゆれ（`any` 付き 2 / なし 5、
-[進捗メモ](../open-questions.md)の「小さな未対応」）を一括で揃えられる。
+副作用として `any MemoRepository` の表記ゆれ（`any` 付き 2 / なし 5）を一括で揃えられる。
 **この機会に `ExistentialAny` を有効化して、以後は機械的に強制する。**
 
 ---
@@ -277,8 +279,8 @@ Xcode プロジェクトは `objectVersion = 77` の
 **ファイルの追加・移動・改名で `project.pbxproj` を編集する必要はない。**
 ディレクトリを操作すればビルド対象に反映される。
 
-各コミットの前に必ずテストを通す。UI テストはハングするため除外する
-（[進捗メモ](../open-questions.md)の「小さな未対応」）。
+各コミットの前に必ずテストを通す。UI テスト（`qoolUITests`）は
+メニューバーアプリの起動待ちが返らずハングするため、`-only-testing:qoolTests` で除外する。
 
 | # | 内容 | 性質 |
 |---|------|------|
@@ -307,7 +309,7 @@ xcodebuild test -scheme qool -destination 'platform=macOS' -only-testing:qoolTes
 
 コミット 2 のみ挙動を変えうる。テスト 65 件のうち Canvas 系を触るのは
 `CanvasCodingTests` だけで、**編集 UseCase には現状テストがない。**
-`CanvasViewModel` がどこからも生成されていない（[進捗メモ](../open-questions.md)）ため
+`CanvasViewModel` はどこからも生成されていない（S5 キャンバス編集ウィンドウが未実装）ため
 実行経路もない。**コミット 2 は S5 キャンバス編集ウィンドウの実装前に済ませておく価値が高い。**
 
 ## 完成後の構成

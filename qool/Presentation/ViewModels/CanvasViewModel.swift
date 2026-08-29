@@ -6,7 +6,6 @@ import Foundation
 final class CanvasViewModel: ObservableObject {
     @Published private(set) var memo: Memo
     @Published var selectedTool: CanvasTool = .select
-    // 選択されている要素の ID の Set ( JS の Set と同様)。複数選択をサポートするために Set で管理する。
     @Published var selectedElementIDs: Set<CanvasElement.ID> = []
     @Published var editingUnionElementID: CanvasElement.ID?
     @Published var selectedUnionSourceID: CanvasElementSnapshot.ID?
@@ -48,28 +47,22 @@ final class CanvasViewModel: ObservableObject {
         selectionService.selectedElement(in: memo.canvas.elements, selectedIDs: selectedElementIDs)
     }
     
-    // 選択されている要素。
-    // 複数選択時は nil を返す。
     var selectedElementID: CanvasElement.ID? {
         selectionService.selectedElementID(from: selectedElementIDs)
     }
 
-    // 選択されている要素のカウント。
     var selectedElementsCount: Int {
         selectedElementIDs.count
     }
 
-    // 要素が選択されているかどうか。
     var hasSelection: Bool {
         !selectedElementIDs.isEmpty
     }
 
-    // 洗濯用の枠を表示するために、選択されている要素のフレームを計算する。
     var selectedElementsFrame: CGRect? {
         selectionService.selectedElementsFrame(in: memo.canvas.elements, selectedIDs: selectedElementIDs)
     }
 
-    // 選択されている要素の配列。キャンバスないから探し、複数選択をサポートするために配列で返す。
     var selectedElements: [CanvasElement] {
         selectionService.selectedElements(in: memo.canvas.elements, selectedIDs: selectedElementIDs)
     }
@@ -99,14 +92,12 @@ final class CanvasViewModel: ObservableObject {
         selectedElement?.unionSourceElements.isEmpty == false
     }
 
-    // 選択をクリアする関数。全部削除。
     func clearSelection() {
         selectedElementIDs.removeAll()
         editingUnionElementID = nil
         selectedUnionSourceID = nil
     }
 
-    // ツールを選択する関数。選択ツール以外が選ばれた場合、選択状態をクリアする。
     func selectTool(_ tool: CanvasTool) {
         if selectedTool == .path, tool != .path {
             clearPathDraft()
@@ -137,16 +128,12 @@ final class CanvasViewModel: ObservableObject {
         draftElement = draftElementBuilder.makePathElement(from: pathDraftPoints, isClosed: false)
     }
 
-    // ドラッグ中に使用する関数。ドラッグの開始点から現在の位置までの間で、ドラフト要素を更新する。
     func updateDraft(from start: CGPoint, to current: CGPoint, canvasSize: CGSize) {
 
-        // 選択ツールと、曲線ツールが選ばれている場合、ドラフト要素は作成しない。
         guard selectedTool != .select, selectedTool != .path else {
             return
         }
 
-        // ドラフト要素を作成するために、開始点と現在の位置をキャンバスのサイズ内にクランプする。
-        // まぁつまりは、ドラッグがキャンバスの外に出ないようにするための処理。
         let start = clamped(start, in: canvasSize)
         let current = clamped(current, in: canvasSize)
         draftElement = draftElementBuilder.makeElement(for: selectedTool, from: start, to: current)
@@ -155,13 +142,11 @@ final class CanvasViewModel: ObservableObject {
     func commitDraft(from start: CGPoint, to current: CGPoint, canvasSize: CGSize) {
         updateDraft(from: start, to: current, canvasSize: canvasSize)
 
-        // ドラフト要素が存在し、かつ描画可能な状態であることを確認する。
         guard let draftElement, draftElementBuilder.isDrawable(draftElement) else {
             self.draftElement = nil
             return
         }
 
-        // ドラフト要素をキャンバスに追加し、選択ツールに切り替えて、その要素を選択状態にする。
         memo.canvas.elements.append(draftElement)
         selectedTool = .select
         selectedElementIDs = [draftElement.id]
@@ -169,7 +154,6 @@ final class CanvasViewModel: ObservableObject {
         save()
     }
 
-    // 要素を選択する関数。指定されたIDの要素を選択状態にする。
     func selectElement(id: CanvasElement.ID) {
         selectedTool = .select
         editingUnionElementID = nil
@@ -194,7 +178,6 @@ final class CanvasViewModel: ObservableObject {
         selectedElementIDs = selectionService.elementIDs(in: selectionFrame, elements: memo.canvas.elements)
     }
 
-    // 指定された点にある要素のIDを返す関数。
     func elementID(at point: CGPoint) -> CanvasElement.ID? {
 
         selectionService.elementID(at: point, in: memo.canvas.elements)
@@ -216,7 +199,6 @@ final class CanvasViewModel: ObservableObject {
         selectedTool = .select
         editingUnionElementID = nil
         selectedUnionSourceID = nil
-        // 追加した要素を選択状態にする。
         selectedElementIDs = [element.id]
         save()
     }
@@ -321,7 +303,6 @@ final class CanvasViewModel: ObservableObject {
         save()
     }
 
-    // 選択されている要素を結合する関数。複数選択されている要素を一つの要素にまとめる。
     func unionSelectedElements() {
         guard canUnionSelection else {
             return
@@ -463,9 +444,7 @@ final class CanvasViewModel: ObservableObject {
         onSave(memo)
     }
 
-    // 最終的にパスを確定し、キャンバスに描画する関数。
     private func commitPathDraft() {
-
         // パスが3点以下の場合はドラフトをクリアして終了する。
         guard let pathElement = draftElementBuilder.makePathElement(from: pathDraftPoints, isClosed: true),
               pathElement.pathPoints.count >= 3 else {
@@ -475,13 +454,11 @@ final class CanvasViewModel: ObservableObject {
 
         memo.canvas.elements.append(pathElement)
         selectedTool = .select
-        // 追加した要素を選択状態にする。
         selectedElementIDs = [pathElement.id]
         clearPathDraft()
         save()
     }
 
-    // パスのドラフトをクリアする関数。ドラフト用の点の配列とドラフト要素をリセットする。
     private func clearPathDraft() {
         pathDraftPoints = []
         draftElement = nil
@@ -503,7 +480,6 @@ final class CanvasViewModel: ObservableObject {
         )
     }
 
-    // 距離計算関数。三角形の定理で斜辺を計算するイメージ。
     private func distance(from lhs: CGPoint, to rhs: CGPoint) -> CGFloat {
         hypot(lhs.x - rhs.x, lhs.y - rhs.y)
     }

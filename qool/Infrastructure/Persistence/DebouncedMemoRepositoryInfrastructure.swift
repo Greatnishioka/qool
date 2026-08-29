@@ -1,34 +1,10 @@
 import Foundation
 import Synchronization
 
-/// 書き込みをまとめ、直列化して、包んだリポジトリへ渡すデコレータ。
+/// 書き込みをまとめ、直列化し、有限回リトライするデコレータ。
 ///
-/// ## 3 つの役割
-///
-/// 1. **まとめる。** スライダーのような連続操作で数十回走る保存を、1 回の書き込みにする
-/// 2. **直列にする。** 書き込みが並走すると、古い内容が新しい内容を上書きしうる
-/// 3. **再試行する。** 失敗しても未保存の内容を保持し、有限回リトライする
-///
-/// ## ジョブの列ではなく「あるべき状態」を持ちます
-///
-/// 保存要求をジョブとして積むと、**失敗したジョブの再投入が順序を壊します。**
-///
-/// ```text
-/// save(A) 失敗 → delete(A) 成功 → save(A) を再投入して成功 → A が復活する
-/// ```
-///
-/// そのため `[Memo.ID: PendingMutation]` として **ID ごとに最新の意図だけ**を持ちます。
-/// 後から来た削除は保存を上書きするので、復活は起こりません。
-///
-/// ## 直列化はタスクの鎖で行います
-///
-/// `enqueueDrain()` が「前の書き込みの完了を待ってから実行する」タスクを作り、
-/// 末尾を繋ぎ替えます。常駐 worker を置かずに順序を保証できます。
-///
-/// ## 失敗しても内容は捨てません
-///
-/// リトライ上限に達しても保留は残したままにし、`.failed` を通知します。
-/// `flush()`（画面の「再試行」）から再開できます。
+/// 保留はジョブの列ではなく **ID ごとの「あるべき状態」**として持ちます。
+/// ジョブとして積むと、失敗したジョブの再投入で削除済みのメモが復活します。
 nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryProtocol, MemoWriteMonitoringProtocol {
     /// 1 件のメモに対する「あるべき状態」。
     private enum Mutation: Sendable {
@@ -40,10 +16,8 @@ nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryPro
         var mutation: Mutation
         /// 単調増加。書き込み完了時に「その間に新しい変更が来ていないか」を判定します。
         var revision: UInt64
-        /// **この revision に対する**試行回数。
-        ///
-        /// drain のローカル変数に持たせると、drain が複数積まれたときに
-        /// 同じ内容が上限を超えて書き込まれます。新しい変更が来れば 0 に戻ります。
+        /// **この revision に対する**試行回数。drain のローカル変数に持たせると、
+        /// drain が複数積まれたときに同じ内容が上限を超えて書き込まれます。
         var attempts: Int = 0
     }
 
@@ -105,7 +79,6 @@ nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryPro
     // MARK: - MemoRepositoryProtocol
 
     /// 包んだリポジトリの内容に、未書き込みの意図を重ねて返す。
-    ///
     /// 書いていないから見えない、という状態を外から観測させないためです。
     func loadMemos() throws -> [Memo] {
         var memos = try base.loadMemos()
@@ -141,15 +114,13 @@ nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryPro
     }
 
     /// 呼び出し時点で未反映の変更が、すべてディスクへ反映されるまで待つ。
-    /// より新しい内容で置き換えられて反映された場合も、満たされたものとして扱います。
     /// 有限回の再試行を終えても未反映なら投げます。
     func flush() async throws {
         let targets = state.withLock { state -> [Memo.ID: UInt64] in
             state.debounceTask?.cancel()
             state.debounceTask = nil
 
-            // 明示的な `flush` は「もう一度試してほしい」という意思表示なので、
-            // 自動リトライの上限をやり直します。
+            // 明示的な `flush` は「もう一度試してほしい」という意思表示なので、上限をやり直します。
             // これがないと、一度諦めた内容は新しい編集が来るまで永久に書かれません。
             for id in state.pending.keys {
                 state.pending[id]?.attempts = 0
@@ -215,11 +186,8 @@ nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryPro
         }
     }
 
-    /// 保留がなくなるまで 1 件ずつ書く。
-    ///
-    /// **1 件が失敗しても他のメモの処理は続けます。** 途中で抜けると、
-    /// 書けないメモが 1 件あるだけで他のメモが永久に保存されなくなります
-    /// （`FileMemoRepositoryInfrastructure` は 1 メモ = 1 ディレクトリなので、ID 単位の失敗は現実に起こります）。
+    /// 保留がなくなるまで 1 件ずつ書く。**1 件が失敗しても他のメモの処理は続けます。**
+    /// 途中で抜けると、書けないメモが 1 件あるだけで他のメモが永久に保存されなくなります。
     private func drain() async {
         var blocked: Set<Memo.ID> = []
 
@@ -251,9 +219,7 @@ nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryPro
         }
     }
 
-    /// 1 件の書き込み。失敗したら**その場で**再試行します。
-    ///
-    /// 末尾へ積み直すと後続を追い越し、順序が壊れます。
+    /// 1 件の書き込み。失敗したら**その場で**再試行します（末尾へ積み直すと順序が壊れるため）。
     /// - Returns: 上限に達せず処理を終えたら `true`。
     private func write(id: Memo.ID) async -> Bool {
         while true {

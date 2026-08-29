@@ -8,9 +8,7 @@ extension RGBAComponents {
     }
 
     /// `ColorPicker` などから受け取った `Color` を Domain の成分へ落とす。
-    ///
-    /// 動的色やパターン色など sRGB へ変換できない色があるため failable にしている。
-    /// 変換できなかったものを黒として保存すると、色が失われたことに気づけない。
+    /// sRGB へ変換できない色（動的色・パターン色）を黒として保存すると、色が失われたと気づけない。
     init?(_ color: Color) {
         guard let sRGBColor = NSColor(color).usingColorSpace(.sRGB) else {
             return nil

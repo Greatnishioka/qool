@@ -8,11 +8,9 @@ nonisolated extension RGBAComponents {
         case opacity
     }
 
-    /// 復号値を必ず正規化 `init` に通す。
-    /// 合成実装だと格納プロパティへ直接代入されるため、
+    /// 復号値を必ず正規化 `init` に通す。合成実装だと格納プロパティへ直接代入され、
     /// 手で書き換えられた JSON の NaN や範囲外の値がそのまま入ってしまいます。
     init(from decoder: any Decoder) throws {
-        // containerはjsonなのか、plistなのか、yamlなのかを抽象化して読み書きするための機能。
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         self.init(

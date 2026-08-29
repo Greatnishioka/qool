@@ -15,7 +15,6 @@ final class AppRootViewModel: ObservableObject {
     @Published private(set) var persistenceStatus: MemoPersistenceStatus = .ok
 
     /// 一覧を読み込めなかった。**「メモが 0 件」と区別する**ために持ちます。
-    /// 同じ空状態を出すと、データが消えたと誤解されます。
     @Published private(set) var didFailToLoad = false
 
     private let loadMemosUseCase: LoadMemosUseCase
@@ -48,10 +47,8 @@ final class AppRootViewModel: ObservableObject {
         writeStateTask?.cancel()
     }
 
-    /// 保存の状態は**実際の書き込み結果からのみ**更新します。
-    ///
-    /// 保存要求を受け付けた時点で成功扱いにすると、まとめ書きの中で失敗しても
-    /// 画面は正常なままになります。
+    /// 保存の状態は**実際の書き込み結果からのみ**更新します。保存要求を受け付けた時点で
+    /// 成功扱いにすると、まとめ書きの中で失敗しても画面は正常なままになります。
     private func observeWriteStates() {
         writeStateTask = Task { [weak self] in
             guard let observeWriteStates = self?.observeWriteStatesUseCase else {
@@ -71,10 +68,8 @@ final class AppRootViewModel: ObservableObject {
         }
     }
 
-    /// 実アプリ用の組み立て。保存先はディスク。
-    ///
-    /// テストやプレビューでは `InMemoryMemoRepositoryInfrastructure` を渡した
-    /// `bootstrap(repository:)` を使ってください。
+    /// 実アプリ用の組み立て。保存先はディスク。テストやプレビューでは
+    /// `InMemoryMemoRepositoryInfrastructure` を渡した `bootstrap(repository:)` を使います。
     static func bootstrap() -> AppRootViewModel {
         // まとめ書きを挟む。flush はアプリ側で呼ぶ必要があります。
         let repository = DebouncedMemoRepositoryInfrastructure(wrapping: FileMemoRepositoryInfrastructure())
@@ -83,7 +78,7 @@ final class AppRootViewModel: ObservableObject {
     }
 
     static func bootstrap(
-        repository: MemoRepositoryProtocol,
+        repository: any MemoRepositoryProtocol,
         monitor: (any MemoWriteMonitoringProtocol)? = nil
     ) -> AppRootViewModel {
         AppRootViewModel(
@@ -96,10 +91,7 @@ final class AppRootViewModel: ObservableObject {
         )
     }
 
-    /// 全メモをディスクから読み直す。
-    ///
-    /// **起動時と、読み込み失敗からの再試行でのみ呼びます。** 保存のたびに呼ぶと、
-    /// 1 件の書き込みに対して全メモの読み込みと復号が走ります。
+    /// 全メモをディスクから読み直す。**起動時と、読み込み失敗からの再試行でのみ呼びます。**
     /// 保存後の一覧更新は `apply(_:)` がメモリ上で行います。
     func reload() {
         do {
@@ -162,9 +154,7 @@ final class AppRootViewModel: ObservableObject {
         imageAdjustment = .default
     }
 
-    /// 保留している書き込みを確定する。
-    ///
-    /// **アプリ終了時に必ず呼んでください。** 呼び忘れると、まとめ書き待ちの編集が失われます。
+    /// 保留している書き込みを確定する。**アプリ終了時に必ず呼んでください。**
     ///
     /// - Returns: すべて書けたら `true`。**終了してよいかの判断に使います。**
     @discardableResult
@@ -189,10 +179,8 @@ final class AppRootViewModel: ObservableObject {
 
     // MARK: -
 
-    /// 保存済みのメモを一覧へ反映する。既にあれば置き換え、無ければ追加する。
-    ///
-    /// 並び順は `MemoRepositoryProtocol.loadMemos()` と同じ **更新日時の降順**に揃えます。
-    /// ここがずれると、再起動の前後で一覧の並びが変わってしまいます。
+    /// 保存済みのメモを一覧へ反映する。並び順は `MemoRepositoryProtocol.loadMemos()` と同じ
+    /// **更新日時の降順**に揃えます。ずれると再起動の前後で一覧の並びが変わります。
     private func apply(_ memo: Memo) {
         var updatedMemos = memos
 

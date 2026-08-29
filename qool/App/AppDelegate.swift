@@ -2,15 +2,8 @@ import AppKit
 
 /// アプリの合成ルート。ViewModel を所有し、終了前に書き込みを確定させます。
 ///
-/// **ViewModel をここで持つのが要点です。** 以前は `App` が持ち、View が現れてから
-/// デリゲートへ配線していましたが、それだとパネルを一度も開かずに終了した場合に
-/// 配線されないままになります（今はパネル以外から編集できないため実害は出ませんが、
-/// ホットキーからメモを作れるようにした時点で未保存の編集を失います）。
-///
-/// また `willTerminateNotification` では非同期処理を待てません。
-/// **`.terminateLater` を返して終了を保留し、書き込み後に `reply` する**のが正しい形です。
-/// 以前は `DispatchSemaphore` で待っていましたが、`Task` が MainActor を継承するため
-/// **待機がその MainActor を塞いでデッドロックし、flush が一度も実行されていませんでした。**
+/// **終了は `.terminateLater` で保留し、書き込み後に `reply` します。**
+/// `willTerminateNotification` では非同期を待てず、セマフォ待機は MainActor を塞ぎます。
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let viewModel = AppRootViewModel.bootstrap()
@@ -18,9 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 終了要求の多重実行を防ぐ。`reply` は必ず 1 回だけ呼ぶ必要があります。
     private var isTerminating = false
 
-    /// 書き込みを待つ上限。これを超えたら保存失敗として扱います。
-    ///
-    /// ファイル I/O 自体が返らない場合（ネットワークボリュームなど）、
+    /// 書き込みを待つ上限。ファイル I/O が返らない場合（ネットワークボリュームなど）、
     /// **これがないと `.terminateLater` のまま永久に終了できなくなります。**
     private static let flushTimeout = Duration.seconds(5)
 
@@ -44,10 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// 書き込みと時間切れを競争させ、**先に決まったほうを採用**します。
-    ///
-    /// 時間切れになっても書き込みタスク自体は止められません（同期ファイル I/O は
-    /// キャンセルできないため）。結果を無視するだけです。
-    /// それでも「終了できなくなる」よりは良い、という判断です。
+    /// 同期ファイル I/O は止められないため、時間切れでは結果を無視するだけです。
     private static func flush(
         _ viewModel: AppRootViewModel,
         within timeout: Duration

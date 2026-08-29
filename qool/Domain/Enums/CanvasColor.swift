@@ -5,9 +5,7 @@ nonisolated enum CanvasColor: Identifiable, Hashable, Codable {
     case sky
     case ink
     case clear
-    /// 任意の色。成分は `RGBAComponents` が `0...1` に保つため、
-    /// **範囲外や NaN を持つ状態は表現できません。**
-    /// 生の `Double` を持っていた頃は、保存時に丸められて往復で値が変わっていました。
+    /// 任意の色。成分は `RGBAComponents` が `0...1` に保つため、範囲外や NaN は表現できない。
     case custom(RGBAComponents)
 
     var id: String {
@@ -29,8 +27,7 @@ nonisolated enum CanvasColor: Identifiable, Hashable, Codable {
         }
     }
 
-    /// 色の実体。UI フレームワークには依存しない。
-    /// SwiftUI の `Color` への変換は Presentation 層の extension が行う。
+    /// `Color` への変換は Presentation 層の extension が行う。
     var components: RGBAComponents {
         switch self {
         case .paper:
