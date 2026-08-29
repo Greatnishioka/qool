@@ -12,6 +12,17 @@ nonisolated struct FlushMemosUseCase {
     }
 }
 
+/// 書き込み状態を購読する。
+///
+/// まとめ書きをしないリポジトリでは監視対象がないため、`nil` を受け取ります。
+nonisolated struct ObserveWriteStatesUseCase {
+    var monitor: (any MemoWriteMonitoring)?
+
+    func execute() -> AsyncStream<MemoWriteState> {
+        monitor?.writeStates ?? AsyncStream { $0.finish() }
+    }
+}
+
 nonisolated struct LoadMemosUseCase {
     var repository: MemoRepository
 

@@ -182,6 +182,10 @@ struct AppRootViewModelTests {
     }
 
     // MARK: - 失敗の扱い
+    //
+    // 状態表示の検証は PersistenceIntegrationTests へ移しました。
+    // ここで偽リポジトリを直接渡すと、本番の DebouncedMemoRepository を通らないため
+    // 「テストは通るが実機では表示されない」状態を見逃します（実際に見逃しました）。
 
     @Test func 保存が成功していれば何も表示しない() async throws {
         let repository = CountingMemoRepository()
@@ -191,30 +195,6 @@ struct AppRootViewModelTests {
 
         #expect(viewModel.persistenceStatus == .ok)
         #expect(!viewModel.didFailToLoad)
-    }
-
-    @Test func 保存に失敗すると再試行中として表示する() async throws {
-        let repository = CountingMemoRepository()
-        let viewModel = makeViewModel(repository: repository)
-        let memo = try #require(await viewModel.createMemo())
-
-        repository.setFailsToSave(true)
-        await viewModel.saveMemo(memo)
-
-        #expect(viewModel.persistenceStatus == .retrying)
-    }
-
-    @Test func 失敗が続くと表示を切り替える() async throws {
-        let repository = CountingMemoRepository()
-        let viewModel = makeViewModel(repository: repository)
-        let memo = try #require(await viewModel.createMemo())
-
-        repository.setFailsToSave(true)
-        for _ in 0..<3 {
-            await viewModel.saveMemo(memo)
-        }
-
-        #expect(viewModel.persistenceStatus == .failing)
     }
 
     @Test func 保存に失敗しても編集内容は画面に残る() async throws {
@@ -229,21 +209,6 @@ struct AppRootViewModelTests {
         // ディスクには書けていないが、操作を巻き戻すと編集が消えたように見えます。
         #expect(viewModel.memos.first?.title == "失敗しても残る")
         #expect(viewModel.selectedMemo?.title == "失敗しても残る")
-    }
-
-    @Test func 保存が成功すれば表示は元に戻る() async throws {
-        let repository = CountingMemoRepository()
-        let viewModel = makeViewModel(repository: repository)
-        let memo = try #require(await viewModel.createMemo())
-
-        repository.setFailsToSave(true)
-        await viewModel.saveMemo(memo)
-        #expect(viewModel.persistenceStatus == .retrying)
-
-        repository.setFailsToSave(false)
-        await viewModel.saveMemo(memo)
-
-        #expect(viewModel.persistenceStatus == .ok)
     }
 
     @Test func 読み込みに失敗しても一覧を空にしない() async throws {

@@ -1,153 +1,258 @@
 import Foundation
 import Synchronization
 
-/// 書き込みをまとめてから、包んだリポジトリへ渡すデコレータ。
+/// 書き込みをまとめ、直列化して、包んだリポジトリへ渡すデコレータ。
 ///
-/// キャンバスは編集のたびに保存します。スライダーやテキスト入力のように
-/// **連続して値が変わる操作では、1 回の操作で数十回の保存が走ります。**
-/// そのすべてをディスクへ書くのは無駄なので、一定時間内の保存をまとめます。
+/// ## 3 つの役割
+///
+/// 1. **まとめる。** スライダーのような連続操作で数十回走る保存を、1 回の書き込みにする
+/// 2. **直列にする。** 書き込みが並走すると、古い内容が新しい内容を上書きしうる
+/// 3. **再試行する。** 失敗しても未保存の内容を保持し、有限回リトライする
+///
+/// ## ジョブの列ではなく「あるべき状態」を持ちます
+///
+/// 保存要求をジョブとして積むと、**失敗したジョブの再投入が順序を壊します。**
 ///
 /// ```text
-/// save save save save save ... （スライダーのドラッグ中）
-///                            └ 静まってから 1 回だけ書く
+/// save(A) 失敗 → delete(A) 成功 → save(A) を再投入して成功 → A が復活する
 /// ```
 ///
-/// ## 未書き込みの内容も読めます
+/// そのため `[Memo.ID: PendingMutation]` として **ID ごとに最新の意図だけ**を持ちます。
+/// 後から来た削除は保存を上書きするので、復活は起こりません。
 ///
-/// `loadMemos()` は保留中の内容を重ねて返します。書いていないから見えない、
-/// という状態を外から観測できないようにするためです。
+/// ## 直列化はタスクの鎖で行います
 ///
-/// ## 失敗した書き込みは保留に戻ります
+/// `enqueueDrain()` が「前の書き込みの完了を待ってから実行する」タスクを作り、
+/// 末尾を繋ぎ替えます。常駐 worker を置かずに順序を保証できます。
 ///
-/// 書き込みに失敗した分は保留へ戻すため、**次の周期で自動的に再試行されます。**
-/// 呼び出し元は失敗を受け取りつつ、編集を続けられます。
+/// ## 失敗しても内容は捨てません
 ///
-/// ## flush を忘れるとデータが消えます
-///
-/// 保留中にプロセスが終わると、その分は失われます。
-/// 呼び出し側はアプリ終了時とパネルを閉じるときに `flush()` を呼んでください。
-///
-/// ## 隔離について
-///
-/// 可変状態を `Mutex` で守り、型自体は `nonisolated` です。
-/// アクタに縛ると、包んだ側の書き込みを別の実行文脈へ逃がせなくなります。
-nonisolated final class DebouncedMemoRepository: MemoRepository {
-    /// 保留中のメモと、書き込み予約。まとめて 1 つのロックで守ります。
+/// リトライ上限に達しても保留は残したままにし、`.failed` を通知します。
+/// `flush()`（画面の「再試行」）から再開できます。
+nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonitoring {
+    /// 1 件のメモに対する「あるべき状態」。
+    private enum Mutation: Sendable {
+        case upsert(Memo)
+        case delete
+    }
+
+    private struct PendingMutation: Sendable {
+        var mutation: Mutation
+        /// 単調増加。書き込み完了時に「その間に新しい変更が来ていないか」を判定します。
+        var revision: UInt64
+    }
+
     private struct State {
-        var pendingMemos: [Memo.ID: Memo] = [:]
-        var writeTask: Task<Void, Never>?
+        var pending: [Memo.ID: PendingMutation] = [:]
+        /// ディスクへ反映済みの revision。`flush()` の完了判定に使います。
+        var persistedRevisions: [Memo.ID: UInt64] = [:]
+        var nextRevision: UInt64 = 1
+        var debounceTask: Task<Void, Never>?
+        /// タスクの鎖の末尾。次の書き込みはこれの完了を待ちます。
+        var writeTail: Task<Void, Never>?
+    }
+
+    /// 再試行の上限。到達しても内容は保持し、手動再試行で再開できます。
+    private static let maximumAttempts = 3
+    /// 500ms → 1s → 2s。ローカルの単一書き込みなので jitter は不要です。
+    private static func backoff(afterAttempt attempt: Int) -> Duration {
+        .milliseconds(500 * (1 << (attempt - 1)))
     }
 
     private let base: any MemoRepository
     private let interval: Duration
     private let state = Mutex(State())
 
-    /// - Parameters:
-    ///   - base: 実際に書き込むリポジトリ。
-    ///   - interval: 最後の保存からこの時間が経つと書き込みます。
+    let writeStates: AsyncStream<MemoWriteState>
+    private let stateContinuation: AsyncStream<MemoWriteState>.Continuation
+
     init(wrapping base: any MemoRepository, interval: Duration = .milliseconds(500)) {
         self.base = base
         self.interval = interval
+
+        // 状態の通知なので、取りこぼしよりも「最新だけ届く」ほうが正しい形です。
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: MemoWriteState.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        writeStates = stream
+        stateContinuation = continuation
     }
 
     deinit {
-        state.withLock { $0.writeTask?.cancel() }
+        state.withLock { state in
+            state.debounceTask?.cancel()
+            state.writeTail?.cancel()
+        }
+        stateContinuation.finish()
     }
 
     // MARK: - MemoRepository
 
-    /// 包んだリポジトリの内容に、保留中の内容を重ねて返す。
+    /// 包んだリポジトリの内容に、未書き込みの意図を重ねて返す。
+    ///
+    /// 書いていないから見えない、という状態を外から観測させないためです。
     func loadMemos() throws -> [Memo] {
         var memos = try base.loadMemos()
-        let pendingMemos = state.withLock { $0.pendingMemos }
+        let pending = state.withLock { $0.pending }
 
-        for pendingMemo in pendingMemos.values {
-            if let index = memos.firstIndex(where: { $0.id == pendingMemo.id }) {
-                memos[index] = pendingMemo
-            } else {
-                memos.append(pendingMemo)
+        for (id, entry) in pending {
+            switch entry.mutation {
+            case let .upsert(memo):
+                if let index = memos.firstIndex(where: { $0.id == id }) {
+                    memos[index] = memo
+                } else {
+                    memos.append(memo)
+                }
+            case .delete:
+                memos.removeAll { $0.id == id }
             }
         }
 
         return memos.sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    /// 保留に積むだけなので失敗しません。実際の書き込みの失敗は `flush()` が投げます。
+    /// 意図を記録するだけなので失敗しません。書き込みの失敗は
+    /// `writeStates` と `flush()` が伝えます。
     func save(_ memo: Memo) async throws {
-        // 同じメモへの連続保存は、最後のものだけ残れば足ります。
-        state.withLock { $0.pendingMemos[memo.id] = memo }
-        scheduleWrite()
+        record(.upsert(memo), for: memo.id)
+        scheduleDebouncedWrite()
     }
 
+    /// 削除はまとめません。取り消しの意図は早く確定させたいためです。
     func delete(id: Memo.ID) async throws {
-        // 保留中の書き込みを取り消してから消す。
-        // 先に base へ渡すと、直後の flush で復活してしまいます。
-        state.withLock { $0.pendingMemos[id] = nil }
-        try await base.delete(id: id)
+        record(.delete, for: id)
+        await enqueueDrain().value
     }
 
+    /// 呼び出し時点で未反映の変更が、すべてディスクへ反映されるまで待つ。
+    /// より新しい内容で置き換えられて反映された場合も、満たされたものとして扱います。
+    /// 有限回の再試行を終えても未反映なら投げます。
     func flush() async throws {
-        let memosToWrite = state.withLock { state -> [Memo.ID: Memo] in
-            state.writeTask?.cancel()
-            state.writeTask = nil
+        let targets = state.withLock { state -> [Memo.ID: UInt64] in
+            state.debounceTask?.cancel()
+            state.debounceTask = nil
 
-            let pending = state.pendingMemos
-            state.pendingMemos = [:]
-
-            return pending
+            return state.pending.mapValues(\.revision)
         }
 
-        guard !memosToWrite.isEmpty else {
-            return
-        }
+        await enqueueDrain().value
 
-        var failedMemos: [Memo.ID: Memo] = [:]
-        var firstError: (any Error)?
-
-        for memo in memosToWrite.values {
-            do {
-                try await base.save(memo)
-            } catch {
-                failedMemos[memo.id] = memo
-                firstError = firstError ?? error
+        let unmet = state.withLock { state in
+            targets.filter { id, revision in
+                (state.persistedRevisions[id] ?? 0) < revision
             }
         }
 
-        guard let firstError else {
-            return
+        guard unmet.isEmpty else {
+            throw WriteFailure.notPersisted(count: unmet.count)
         }
-
-        // 失敗した分を保留へ戻して再試行させます。
-        // 書き込み中に来た新しい保存を消さないよう、既にあるものは上書きしません。
-        state.withLock { state in
-            for (id, memo) in failedMemos where state.pendingMemos[id] == nil {
-                state.pendingMemos[id] = memo
-            }
-        }
-        scheduleWrite()
-
-        throw firstError
     }
 
-    // MARK: -
+    enum WriteFailure: Error {
+        case notPersisted(count: Int)
+    }
 
-    private func scheduleWrite() {
-        // 保存のたびに前の予約を捨てて取り直す。
-        // 操作が続いている間は書かず、止まってから書くための形です。
+    // MARK: - 意図の記録
+
+    private func record(_ mutation: Mutation, for id: Memo.ID) {
         state.withLock { state in
-            state.writeTask?.cancel()
-            state.writeTask = Task { [weak self, interval] in
+            let revision = state.nextRevision
+            state.nextRevision += 1
+            // 同じ ID への新しい意図は、古い意図を置き換えます。
+            state.pending[id] = PendingMutation(mutation: mutation, revision: revision)
+        }
+    }
+
+    // MARK: - まとめ書き
+
+    private func scheduleDebouncedWrite() {
+        state.withLock { state in
+            state.debounceTask?.cancel()
+            state.debounceTask = Task { [weak self, interval] in
                 do {
                     try await Task.sleep(for: interval)
                 } catch {
-                    // キャンセルされた＝より新しい保存が来た。ここでは書かない。
-                    return
+                    return  // より新しい保存が来た
                 }
 
-                // 自動書き込みでの失敗は保留へ戻り、次の周期で再試行されます。
-                // 呼び出し元へ伝える経路は `flush()` を明示的に呼んだときです。
-                try? await self?.flush()
+                await self?.enqueueDrain().value
             }
+        }
+    }
+
+    // MARK: - 直列化
+
+    /// 前の書き込みの完了を待ってから実行するタスクを作り、鎖の末尾に繋ぐ。
+    private func enqueueDrain() -> Task<Void, Never> {
+        state.withLock { state in
+            let previous = state.writeTail
+            let task = Task { [weak self] in
+                await previous?.value
+                await self?.drain()
+            }
+            state.writeTail = task
+
+            return task
+        }
+    }
+
+    /// 保留がなくなるまで 1 件ずつ書く。
+    private func drain() async {
+        while let id = state.withLock({ $0.pending.keys.first }) {
+            guard await write(id: id) else {
+                // 上限に達した。保留は残したまま止めます。
+                stateContinuation.yield(.failed)
+                return
+            }
+        }
+
+        stateContinuation.yield(.idle)
+    }
+
+    /// 1 件の書き込み。失敗したら**その場で**再試行します。
+    ///
+    /// 末尾へ積み直すと後続を追い越し、順序が壊れます。
+    /// - Returns: 上限に達せず処理を終えたら `true`。
+    private func write(id: Memo.ID) async -> Bool {
+        for attempt in 1...Self.maximumAttempts {
+            // 毎回読み直します。再試行の間に削除が来ていれば、そちらが優先されます。
+            guard let entry = state.withLock({ $0.pending[id] }) else {
+                return true
+            }
+
+            do {
+                switch entry.mutation {
+                case let .upsert(memo):
+                    try await base.save(memo)
+                case .delete:
+                    try await base.delete(id: id)
+                }
+
+                markPersisted(id: id, revision: entry.revision)
+
+                return true
+            } catch {
+                guard attempt < Self.maximumAttempts else {
+                    return false
+                }
+
+                stateContinuation.yield(.retrying(attempt: attempt))
+                try? await Task.sleep(for: Self.backoff(afterAttempt: attempt))
+            }
+        }
+
+        return false
+    }
+
+    private func markPersisted(id: Memo.ID, revision: UInt64) {
+        state.withLock { state in
+            // 書き込み中に新しい意図が来ていたら、保留は消しません。
+            if state.pending[id]?.revision == revision {
+                state.pending[id] = nil
+            }
+
+            state.persistedRevisions[id] = max(state.persistedRevisions[id] ?? 0, revision)
         }
     }
 }

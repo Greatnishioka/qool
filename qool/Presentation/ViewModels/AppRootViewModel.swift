@@ -13,8 +13,8 @@ final class AppRootViewModel: ObservableObject {
         case failing
     }
 
-    /// この回数を超えて失敗が続いたら、表示を「原因を確認してほしい」側へ切り替えます。
-    private static let failureCountBeforeEscalation = 3
+    /// この回数を超えて再試行が続いたら、表示を「原因を確認してほしい」側へ切り替えます。
+    private static let attemptsBeforeEscalation = 2
 
     @Published private(set) var memos: [Memo] = []
     @Published var selectedMemo: Memo?
@@ -28,27 +28,57 @@ final class AppRootViewModel: ObservableObject {
     /// 同じ空状態を出すと、データが消えたと誤解されます。
     @Published private(set) var didFailToLoad = false
 
-    private var saveFailureCount = 0
-
     private let loadMemosUseCase: LoadMemosUseCase
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
     private let flushMemosUseCase: FlushMemosUseCase
+    private let observeWriteStatesUseCase: ObserveWriteStatesUseCase
     private let elementFactory: CanvasElementFactory
+    private var writeStateTask: Task<Void, Never>?
 
     init(
         loadMemosUseCase: LoadMemosUseCase,
         createMemoUseCase: CreateMemoUseCase,
         saveMemoUseCase: SaveMemoUseCase,
         flushMemosUseCase: FlushMemosUseCase,
+        observeWriteStatesUseCase: ObserveWriteStatesUseCase,
         elementFactory: CanvasElementFactory
     ) {
         self.loadMemosUseCase = loadMemosUseCase
         self.createMemoUseCase = createMemoUseCase
         self.saveMemoUseCase = saveMemoUseCase
         self.flushMemosUseCase = flushMemosUseCase
+        self.observeWriteStatesUseCase = observeWriteStatesUseCase
         self.elementFactory = elementFactory
         reload()
+        observeWriteStates()
+    }
+
+    deinit {
+        writeStateTask?.cancel()
+    }
+
+    /// 保存の状態は**実際の書き込み結果からのみ**更新します。
+    ///
+    /// 保存要求を受け付けた時点で成功扱いにすると、まとめ書きの中で失敗しても
+    /// 画面は正常なままになります。
+    private func observeWriteStates() {
+        writeStateTask = Task { [weak self] in
+            guard let states = self?.observeWriteStatesUseCase.execute() else {
+                return
+            }
+
+            for await state in states {
+                switch state {
+                case .idle:
+                    self?.persistenceStatus = .ok
+                case let .retrying(attempt):
+                    self?.persistenceStatus = attempt >= Self.attemptsBeforeEscalation ? .failing : .retrying
+                case .failed:
+                    self?.persistenceStatus = .failing
+                }
+            }
+        }
     }
 
     /// 実アプリ用の組み立て。保存先はディスク。
@@ -57,15 +87,21 @@ final class AppRootViewModel: ObservableObject {
     /// `bootstrap(repository:)` を使ってください。
     static func bootstrap() -> AppRootViewModel {
         // まとめ書きを挟む。flush はアプリ側で呼ぶ必要があります。
-        bootstrap(repository: DebouncedMemoRepository(wrapping: FileMemoRepository()))
+        let repository = DebouncedMemoRepository(wrapping: FileMemoRepository())
+
+        return bootstrap(repository: repository, monitor: repository)
     }
 
-    static func bootstrap(repository: MemoRepository) -> AppRootViewModel {
+    static func bootstrap(
+        repository: MemoRepository,
+        monitor: (any MemoWriteMonitoring)? = nil
+    ) -> AppRootViewModel {
         AppRootViewModel(
             loadMemosUseCase: LoadMemosUseCase(repository: repository),
             createMemoUseCase: CreateMemoUseCase(repository: repository),
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
             flushMemosUseCase: FlushMemosUseCase(repository: repository),
+            observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
             elementFactory: CanvasElementFactory()
         )
     }
@@ -89,14 +125,11 @@ final class AppRootViewModel: ObservableObject {
     func createMemo() async -> Memo? {
         do {
             let memo = try await createMemoUseCase.execute()
-            recordSaveSuccess()
             apply(memo)
             selectedMemo = memo
 
             return memo
         } catch {
-            recordSaveFailure()
-
             return nil
         }
     }
@@ -120,11 +153,9 @@ final class AppRootViewModel: ObservableObject {
             // 引数の `memo` をそのまま一覧へ入れると更新日時が古いままになります。
             let savedMemo = try await saveMemoUseCase.execute(memo)
 
-            recordSaveSuccess()
             selectedMemo = savedMemo
             apply(savedMemo)
         } catch {
-            recordSaveFailure()
             // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
             selectedMemo = memo
             apply(memo)
@@ -143,14 +174,17 @@ final class AppRootViewModel: ObservableObject {
 
     /// 保留している書き込みを確定する。
     ///
-    /// **アプリ終了時とパネルを閉じるときに必ず呼んでください。**
-    /// 呼び忘れると、まとめ書き待ちの編集が失われます。
-    func flush() async {
+    /// **アプリ終了時に必ず呼んでください。** 呼び忘れると、まとめ書き待ちの編集が失われます。
+    ///
+    /// - Returns: すべて書けたら `true`。**終了してよいかの判断に使います。**
+    @discardableResult
+    func flush() async -> Bool {
         do {
             try await flushMemosUseCase.execute()
-            recordSaveSuccess()
+
+            return true
         } catch {
-            recordSaveFailure()
+            return false
         }
     }
 
@@ -160,20 +194,10 @@ final class AppRootViewModel: ObservableObject {
             reload()
         }
 
-        await flush()
+        _ = await flush()
     }
 
     // MARK: -
-
-    private func recordSaveSuccess() {
-        saveFailureCount = 0
-        persistenceStatus = .ok
-    }
-
-    private func recordSaveFailure() {
-        saveFailureCount += 1
-        persistenceStatus = saveFailureCount >= Self.failureCountBeforeEscalation ? .failing : .retrying
-    }
 
     /// 保存済みのメモを一覧へ反映する。既にあれば置き換え、無ければ追加する。
     ///
