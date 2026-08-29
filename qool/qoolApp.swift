@@ -19,6 +19,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 終了要求の多重実行を防ぐ。`reply` は必ず 1 回だけ呼ぶ必要があります。
     private var isTerminating = false
 
+    /// 書き込みを待つ上限。これを超えたら保存失敗として扱います。
+    ///
+    /// ファイル I/O 自体が返らない場合（ネットワークボリュームなど）、
+    /// **これがないと `.terminateLater` のまま永久に終了できなくなります。**
+    private static let flushTimeout = Duration.seconds(5)
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isTerminating else {
             return .terminateLater
@@ -27,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isTerminating = true
 
         Task { [viewModel] in
-            let didPersist = await viewModel.flush()
+            let didPersist = await Self.flush(viewModel, within: Self.flushTimeout)
 
             // 保存できていないなら終了を中止し、失敗表示を残したままにします。
             // 未保存の編集を捨てないことを優先する判断です。
@@ -36,6 +42,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return .terminateLater
+    }
+
+    /// 書き込みと時間切れを競争させ、**先に決まったほうを採用**します。
+    ///
+    /// 時間切れになっても書き込みタスク自体は止められません（同期ファイル I/O は
+    /// キャンセルできないため）。結果を無視するだけです。
+    /// それでも「終了できなくなる」よりは良い、という判断です。
+    private static func flush(
+        _ viewModel: AppRootViewModel,
+        within timeout: Duration
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await viewModel.flush() }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+
+                return false
+            }
+
+            let didPersist = await group.next() ?? false
+            group.cancelAll()
+
+            return didPersist
+        }
     }
 }
 

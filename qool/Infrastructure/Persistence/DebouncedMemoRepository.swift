@@ -40,6 +40,21 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
         var mutation: Mutation
         /// 単調増加。書き込み完了時に「その間に新しい変更が来ていないか」を判定します。
         var revision: UInt64
+        /// **この revision に対する**試行回数。
+        ///
+        /// drain のローカル変数に持たせると、drain が複数積まれたときに
+        /// 同じ内容が上限を超えて書き込まれます。新しい変更が来れば 0 に戻ります。
+        var attempts: Int = 0
+    }
+
+    /// 1 回の書き込みが失敗したあと、次にどうするか。
+    private enum FailureOutcome {
+        /// 新しい変更が来ていた。待たずに取り直す。
+        case superseded
+        /// まだ試せる。
+        case retry(attempt: Int)
+        /// 上限に達した。
+        case exhausted
     }
 
     private struct State {
@@ -133,6 +148,13 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
             state.debounceTask?.cancel()
             state.debounceTask = nil
 
+            // 明示的な `flush` は「もう一度試してほしい」という意思表示なので、
+            // 自動リトライの上限をやり直します。
+            // これがないと、一度諦めた内容は新しい編集が来るまで永久に書かれません。
+            for id in state.pending.keys {
+                state.pending[id]?.attempts = 0
+            }
+
             return state.pending.mapValues(\.revision)
         }
 
@@ -198,16 +220,39 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
     }
 
     /// 保留がなくなるまで 1 件ずつ書く。
+    ///
+    /// **1 件が失敗しても他のメモの処理は続けます。** 途中で抜けると、
+    /// 書けないメモが 1 件あるだけで他のメモが永久に保存されなくなります
+    /// （`FileMemoRepository` は 1 メモ = 1 ディレクトリなので、ID 単位の失敗は現実に起こります）。
     private func drain() async {
-        while let id = state.withLock({ $0.pending.keys.first }) {
-            guard await write(id: id) else {
-                // 上限に達した。保留は残したまま止めます。
-                stateContinuation.yield(.failed)
-                return
+        var blocked: Set<Memo.ID> = []
+
+        while let id = nextPendingID(excluding: blocked) {
+            if await write(id: id) == false {
+                // このメモは諦めて次へ。保留は残したままです。
+                blocked.insert(id)
             }
         }
 
-        stateContinuation.yield(.idle)
+        notifyCompletion(hasBlocked: !blocked.isEmpty)
+    }
+
+    private func nextPendingID(excluding blocked: Set<Memo.ID>) -> Memo.ID? {
+        state.withLock { state in
+            state.pending.keys.first { !blocked.contains($0) }
+        }
+    }
+
+    /// 空の判定と通知を**同じロックの中**で行います。
+    /// 分けると、空を確認した直後に来た保存を取りこぼして `.idle` を流してしまいます。
+    private func notifyCompletion(hasBlocked: Bool) {
+        state.withLock { state in
+            if hasBlocked {
+                stateContinuation.yield(.failed)
+            } else if state.pending.isEmpty {
+                stateContinuation.yield(.idle)
+            }
+        }
     }
 
     /// 1 件の書き込み。失敗したら**その場で**再試行します。
@@ -215,10 +260,15 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
     /// 末尾へ積み直すと後続を追い越し、順序が壊れます。
     /// - Returns: 上限に達せず処理を終えたら `true`。
     private func write(id: Memo.ID) async -> Bool {
-        for attempt in 1...Self.maximumAttempts {
+        while true {
             // 毎回読み直します。再試行の間に削除が来ていれば、そちらが優先されます。
             guard let entry = state.withLock({ $0.pending[id] }) else {
                 return true
+            }
+
+            // 試行回数は state が持つため、drain が何本積まれても上限は共通です。
+            guard entry.attempts < Self.maximumAttempts else {
+                return false
             }
 
             do {
@@ -233,16 +283,31 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
 
                 return true
             } catch {
-                guard attempt < Self.maximumAttempts else {
+                switch recordFailure(id: id, revision: entry.revision) {
+                case .superseded:
+                    continue
+                case let .retry(attempt):
+                    stateContinuation.yield(.retrying(attempt: attempt))
+                    try? await Task.sleep(for: Self.backoff(afterAttempt: attempt))
+                case .exhausted:
                     return false
                 }
-
-                stateContinuation.yield(.retrying(attempt: attempt))
-                try? await Task.sleep(for: Self.backoff(afterAttempt: attempt))
             }
         }
+    }
 
-        return false
+    private func recordFailure(id: Memo.ID, revision: UInt64) -> FailureOutcome {
+        state.withLock { state in
+            // 失敗している間に新しい変更が来ていたら、そちらの試行回数は触りません。
+            guard state.pending[id]?.revision == revision else {
+                return .superseded
+            }
+
+            state.pending[id]?.attempts += 1
+            let attempts = state.pending[id]?.attempts ?? Self.maximumAttempts
+
+            return attempts < Self.maximumAttempts ? .retry(attempt: attempts) : .exhausted
+        }
     }
 
     private func markPersisted(id: Memo.ID, revision: UInt64) {
