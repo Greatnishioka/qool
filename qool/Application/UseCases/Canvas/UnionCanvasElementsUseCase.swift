@@ -2,10 +2,10 @@ import CoreGraphics
 import Foundation
 import iOverlay
 
-nonisolated struct CanvasUnionUseCase {
+nonisolated struct UnionCanvasElementsUseCase {
     init() {}
 
-    func unionElement(
+    func callAsFunction(
         from elements: [CanvasElement],
         id: UUID = UUID(),
         styleSource: CanvasElement? = nil

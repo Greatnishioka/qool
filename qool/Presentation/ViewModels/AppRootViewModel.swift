@@ -54,11 +54,11 @@ final class AppRootViewModel: ObservableObject {
     /// 画面は正常なままになります。
     private func observeWriteStates() {
         writeStateTask = Task { [weak self] in
-            guard let states = self?.observeWriteStatesUseCase.execute() else {
+            guard let observeWriteStates = self?.observeWriteStatesUseCase else {
                 return
             }
 
-            for await state in states {
+            for await state in observeWriteStates() {
                 switch state {
                 case .idle:
                     self?.persistenceStatus = .ok
@@ -103,7 +103,7 @@ final class AppRootViewModel: ObservableObject {
     /// 保存後の一覧更新は `apply(_:)` がメモリ上で行います。
     func reload() {
         do {
-            memos = try loadMemosUseCase.execute()
+            memos = try loadMemosUseCase()
             didFailToLoad = false
         } catch {
             // 読めなかったときに空配列を入れると「メモが 0 件」と区別できません。
@@ -114,7 +114,7 @@ final class AppRootViewModel: ObservableObject {
 
     func createMemo() async -> Memo? {
         do {
-            let memo = try await createMemoUseCase.execute()
+            let memo = try await createMemoUseCase()
             apply(memo)
             selectedMemo = memo
 
@@ -139,9 +139,9 @@ final class AppRootViewModel: ObservableObject {
 
     func saveMemo(_ memo: Memo) async {
         do {
-            // 戻り値を使うのが要点。`execute` が更新日時を差し替えるため、
+            // 戻り値を使うのが要点。`SaveMemoUseCase` が更新日時を差し替えるため、
             // 引数の `memo` をそのまま一覧へ入れると更新日時が古いままになります。
-            let savedMemo = try await saveMemoUseCase.execute(memo)
+            let savedMemo = try await saveMemoUseCase(memo)
 
             selectedMemo = savedMemo
             apply(savedMemo)
@@ -170,7 +170,7 @@ final class AppRootViewModel: ObservableObject {
     @discardableResult
     func flush() async -> Bool {
         do {
-            try await flushMemosUseCase.execute()
+            try await flushMemosUseCase()
 
             return true
         } catch {

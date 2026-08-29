@@ -16,8 +16,10 @@ final class CanvasViewModel: ObservableObject {
     private let elementFactory: CanvasElementFactory
     private let selectionService: CanvasSelectionService
     private let draftElementBuilder: CanvasDraftElementBuilder
-    private let editingUseCases: CanvasEditingUseCases
-    private let unionUseCase: CanvasUnionUseCase
+    private let moveElementsUseCase: MoveCanvasElementsUseCase
+    private let deleteElementsUseCase: DeleteCanvasElementsUseCase
+    private let updateElementUseCase: UpdateCanvasElementUseCase
+    private let unionElementsUseCase: UnionCanvasElementsUseCase
     private let onSave: (Memo) -> Void
 
     init(
@@ -25,16 +27,20 @@ final class CanvasViewModel: ObservableObject {
         elementFactory: CanvasElementFactory,
         selectionService: CanvasSelectionService = CanvasSelectionService(),
         draftElementBuilder: CanvasDraftElementBuilder = CanvasDraftElementBuilder(),
-        editingUseCases: CanvasEditingUseCases = CanvasEditingUseCases(),
-        unionUseCase: CanvasUnionUseCase = CanvasUnionUseCase(),
+        moveElementsUseCase: MoveCanvasElementsUseCase = MoveCanvasElementsUseCase(),
+        deleteElementsUseCase: DeleteCanvasElementsUseCase = DeleteCanvasElementsUseCase(),
+        updateElementUseCase: UpdateCanvasElementUseCase = UpdateCanvasElementUseCase(),
+        unionElementsUseCase: UnionCanvasElementsUseCase = UnionCanvasElementsUseCase(),
         onSave: @escaping (Memo) -> Void
     ) {
         self.memo = memo
         self.elementFactory = elementFactory
         self.selectionService = selectionService
         self.draftElementBuilder = draftElementBuilder
-        self.editingUseCases = editingUseCases
-        self.unionUseCase = unionUseCase
+        self.moveElementsUseCase = moveElementsUseCase
+        self.deleteElementsUseCase = deleteElementsUseCase
+        self.updateElementUseCase = updateElementUseCase
+        self.unionElementsUseCase = unionElementsUseCase
         self.onSave = onSave
     }
 
@@ -226,7 +232,7 @@ final class CanvasViewModel: ObservableObject {
                 .map { ($0.id, $0.frame) }
         )
 
-        editingUseCases.moveElements(
+        moveElementsUseCase(
             in: &memo.canvas.elements,
             selectedIDs: selectedElementIDs,
             by: translation,
@@ -308,7 +314,7 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
-        editingUseCases.deleteElements(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
+        deleteElementsUseCase(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
         selectedElementIDs.removeAll()
         editingUnionElementID = nil
         selectedUnionSourceID = nil
@@ -321,11 +327,11 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
-        guard let unionElement = unionUseCase.unionElement(from: selectedElements) else {
+        guard let unionElement = unionElementsUseCase(from: selectedElements) else {
             return
         }
 
-        editingUseCases.deleteElements(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
+        deleteElementsUseCase(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
         memo.canvas.elements.append(unionElement)
         selectedElementIDs = [unionElement.id]
         editingUnionElementID = nil
@@ -387,7 +393,7 @@ final class CanvasViewModel: ObservableObject {
         )
 
         let currentUnionElement = memo.canvas.elements[elementIndex]
-        guard let updatedUnionElement = unionUseCase.unionElement(
+        guard let updatedUnionElement = unionElementsUseCase(
             from: sourceElements.map(\.element),
             id: currentUnionElement.id,
             styleSource: currentUnionElement
@@ -421,7 +427,7 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
-        editingUseCases.updateElement(in: &memo.canvas.elements, id: selectedElementID, mutation)
+        updateElementUseCase(in: &memo.canvas.elements, id: selectedElementID, mutation)
         save()
     }
 
@@ -439,7 +445,7 @@ final class CanvasViewModel: ObservableObject {
         mutation(&sourceElements[sourceIndex])
 
         let currentUnionElement = memo.canvas.elements[elementIndex]
-        guard let updatedUnionElement = unionUseCase.unionElement(
+        guard let updatedUnionElement = unionElementsUseCase(
             from: sourceElements.map(\.element),
             id: currentUnionElement.id,
             styleSource: currentUnionElement
