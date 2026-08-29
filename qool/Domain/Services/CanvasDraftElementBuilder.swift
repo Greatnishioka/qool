@@ -1,8 +1,8 @@
 import CoreGraphics
 import Foundation
 
-struct CanvasDraftElementBuilder {
-    nonisolated init() {}
+nonisolated struct CanvasDraftElementBuilder {
+    init() {}
 
     func makeElement(for tool: CanvasTool, from start: CGPoint, to current: CGPoint) -> CanvasElement? {
         switch tool {

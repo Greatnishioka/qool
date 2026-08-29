@@ -168,6 +168,55 @@ struct FileMemoRepositoryTests {
         }
     }
 
+    @Test func ディレクトリを複製しても二重に読み込まない() throws {
+        try withTemporaryRepository { repository, root in
+            let original = memo(title: "元")
+            repository.save(original)
+
+            // Finder での複製に相当。ディレクトリ名だけが変わり、中身の ID は元のまま。
+            let memosDirectory = root.appending(path: "memos", directoryHint: .isDirectory)
+            let source = memosDirectory.appending(
+                path: original.id.uuidString,
+                directoryHint: .isDirectory
+            )
+            let duplicate = memosDirectory.appending(
+                path: UUID().uuidString,
+                directoryHint: .isDirectory
+            )
+            try FileManager.default.copyItem(at: source, to: duplicate)
+
+            // ID が重複したまま読み込むと List の識別子が衝突する。
+            #expect(repository.loadMemos().count == 1)
+        }
+    }
+
+    @Test func ID以外の名前のディレクトリは無視する() throws {
+        try withTemporaryRepository { repository, root in
+            repository.save(memo(title: "無事"))
+
+            let strayDirectory = root
+                .appending(path: "memos", directoryHint: .isDirectory)
+                .appending(path: "スクリーンショット", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: strayDirectory, withIntermediateDirectories: true)
+
+            #expect(repository.loadMemos().map(\.title) == ["無事"])
+        }
+    }
+
+    @Test func memo_jsonのないディレクトリは静かに読み飛ばす() throws {
+        try withTemporaryRepository { repository, root in
+            repository.save(memo(title: "無事"))
+
+            // 書き込み途中で終了した場合に残る形。
+            let emptyDirectory = root
+                .appending(path: "memos", directoryHint: .isDirectory)
+                .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: emptyDirectory, withIntermediateDirectories: true)
+
+            #expect(repository.loadMemos().map(\.title) == ["無事"])
+        }
+    }
+
     @Test func 保存したJSONは人が読める() throws {
         try withTemporaryRepository { repository, root in
             let target = memo(title: "読める")

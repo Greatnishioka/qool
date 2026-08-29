@@ -1,8 +1,8 @@
 import CoreGraphics
 import Foundation
 
-struct CanvasEditingUseCases {
-    nonisolated init() {}
+nonisolated struct CanvasEditingUseCases {
+    init() {}
 
     func moveElements(
         in elements: inout [CanvasElement],

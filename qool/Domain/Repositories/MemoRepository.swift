@@ -1,6 +1,6 @@
 import Foundation
 
-protocol MemoRepository {
+nonisolated protocol MemoRepository {
     func loadMemos() -> [Memo]
     func save(_ memo: Memo)
     func delete(id: Memo.ID)
@@ -13,6 +13,6 @@ protocol MemoRepository {
     func flush()
 }
 
-extension MemoRepository {
+nonisolated extension MemoRepository {
     func flush() {}
 }

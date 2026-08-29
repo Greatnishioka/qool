@@ -27,7 +27,7 @@ struct CanvasCodingTests {
     }
 
     @Test func カスタム色が往復する() throws {
-        let color = CanvasColor.custom(red: 0.25, green: 0.5, blue: 0.75, opacity: 0.4)
+        let color = CanvasColor.custom(RGBAComponents(red: 0.25, green: 0.5, blue: 0.75, opacity: 0.4))
 
         #expect(try CanvasCodingTests.roundTrip(color) == color)
     }
@@ -51,15 +51,47 @@ struct CanvasCodingTests {
         #expect(components.opacity == 1)
     }
 
-    @Test func 復号時に非有限値が弾かれる() throws {
-        // 手で書き換えられた JSON から NaN が入ると Equatable の反射律が壊れるため、
-        // 復号でも正規化 init を通す必要があります。
-        let json = #"{"red":null,"green":0.5,"blue":0.5}"#
-        let data = Data(json.replacingOccurrences(of: "null", with: "0.5").utf8)
-        let components = try JSONDecoder().decode(RGBAComponents.self, from: data)
+    @Test func 復号時に非有限値が0になる() throws {
+        // JSON は NaN や Infinity を直接表現できないため、文字列として読む設定を使う。
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+            positiveInfinity: "Infinity",
+            negativeInfinity: "-Infinity",
+            nan: "NaN"
+        )
+        let json = #"{"red":"NaN","green":"Infinity","blue":0.5,"opacity":"-Infinity"}"#
+
+        let components = try decoder.decode(RGBAComponents.self, from: Data(json.utf8))
+
+        #expect(components.red == 0)
+        #expect(components.green == 0)
+        #expect(components.blue == 0.5)
+        #expect(components.opacity == 0)
+        // NaN が素通りしていると自分自身と等しくなくなる（Equatable の反射律が壊れる）。
+        #expect(components == components)
+    }
+
+    @Test func 非有限値を渡した初期化でも反射律が保たれる() {
+        let components = RGBAComponents(
+            red: .nan,
+            green: .infinity,
+            blue: -.infinity,
+            opacity: .nan
+        )
 
         #expect(components == components)
-        #expect(components.opacity == 1, "opacity を省略したら 1 になる")
+        #expect(components.red == 0)
+        #expect(components.green == 0)
+        #expect(components.blue == 0)
+        #expect(components.opacity == 0)
+    }
+
+    @Test func opacityを省略すると1になる() throws {
+        let json = #"{"red":0.5,"green":0.5,"blue":0.5}"#
+
+        let components = try JSONDecoder().decode(RGBAComponents.self, from: Data(json.utf8))
+
+        #expect(components.opacity == 1)
     }
 
     // MARK: - CanvasElement
@@ -68,7 +100,7 @@ struct CanvasCodingTests {
         let element = CanvasElement(
             kind: .path,
             frame: CGRect(x: 12.5, y: 24, width: 100, height: 80),
-            fillColor: .custom(red: 0.1, green: 0.2, blue: 0.3, opacity: 0.9),
+            fillColor: .custom(RGBAComponents(red: 0.1, green: 0.2, blue: 0.3, opacity: 0.9)),
             strokeColor: .ink,
             strokeWidth: 3,
             showsStroke: true,

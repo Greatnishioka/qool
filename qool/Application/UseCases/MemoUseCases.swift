@@ -4,7 +4,7 @@ import Foundation
 ///
 /// アプリ終了時とパネルを閉じるときに実行しないと、
 /// [まとめ書き](../../Infrastructure/Persistence/DebouncedMemoRepository.swift)の分が失われます。
-struct FlushMemosUseCase {
+nonisolated struct FlushMemosUseCase {
     var repository: MemoRepository
 
     func execute() {
@@ -12,7 +12,7 @@ struct FlushMemosUseCase {
     }
 }
 
-struct LoadMemosUseCase {
+nonisolated struct LoadMemosUseCase {
     var repository: MemoRepository
 
     func execute() -> [Memo] {
@@ -20,7 +20,7 @@ struct LoadMemosUseCase {
     }
 }
 
-struct CreateMemoUseCase {
+nonisolated struct CreateMemoUseCase {
     var repository: MemoRepository
 
     func execute() -> Memo {
@@ -30,7 +30,7 @@ struct CreateMemoUseCase {
     }
 }
 
-struct SaveMemoUseCase {
+nonisolated struct SaveMemoUseCase {
     var repository: MemoRepository
 
     /// 保存した内容を返す。

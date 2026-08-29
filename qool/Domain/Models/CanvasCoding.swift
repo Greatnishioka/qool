@@ -14,7 +14,7 @@ import Foundation
 
 // MARK: - RGBAComponents
 
-extension RGBAComponents {
+nonisolated extension RGBAComponents {
     private enum CodingKeys: String, CodingKey {
         case red
         case green
@@ -25,7 +25,7 @@ extension RGBAComponents {
     /// 復号値を必ず正規化 `init` に通す。
     /// 合成実装だと格納プロパティへ直接代入されるため、
     /// 手で書き換えられた JSON の NaN や範囲外の値がそのまま入ってしまいます。
-    nonisolated init(from decoder: any Decoder) throws {
+    init(from decoder: any Decoder) throws {
         // containerはjsonなのか、plistなのか、yamlなのかを抽象化して読み書きするための機能。
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
@@ -37,7 +37,7 @@ extension RGBAComponents {
         )
     }
 
-    nonisolated func encode(to encoder: any Encoder) throws {
+    func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         try container.encode(red, forKey: .red)
@@ -49,7 +49,7 @@ extension RGBAComponents {
 
 // MARK: - CanvasColor
 
-extension CanvasColor {
+nonisolated extension CanvasColor {
     private enum CodingKeys: String, CodingKey {
         case preset
         case custom
@@ -65,7 +65,7 @@ extension CanvasColor {
         case clear
     }
 
-    nonisolated init(from decoder: any Decoder) throws {
+    init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         if let preset = try container.decodeIfPresent(Preset.self, forKey: .preset) {
@@ -87,16 +87,10 @@ extension CanvasColor {
             return
         }
 
-        let components = try container.decode(RGBAComponents.self, forKey: .custom)
-        self = .custom(
-            red: components.red,
-            green: components.green,
-            blue: components.blue,
-            opacity: components.opacity
-        )
+        self = .custom(try container.decode(RGBAComponents.self, forKey: .custom))
     }
 
-    nonisolated func encode(to encoder: any Encoder) throws {
+    func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         switch self {
@@ -112,18 +106,15 @@ extension CanvasColor {
             try container.encode(Preset.ink, forKey: .preset)
         case .clear:
             try container.encode(Preset.clear, forKey: .preset)
-        case let .custom(red, green, blue, opacity):
-            try container.encode(
-                RGBAComponents(red: red, green: green, blue: blue, opacity: opacity),
-                forKey: .custom
-            )
+        case let .custom(components):
+            try container.encode(components, forKey: .custom)
         }
     }
 }
 
 // MARK: - CanvasElement
 
-extension CanvasElement {
+nonisolated extension CanvasElement {
     fileprivate enum CodingKeys: String, CodingKey {
         case id
         case kind
@@ -146,7 +137,7 @@ extension CanvasElement {
 
     /// 既定値は `init` のデフォルト引数と揃えています。
     /// キーが欠けていても既定値で読めるため、プロパティの追加でファイルが壊れません。
-    nonisolated init(from decoder: any Decoder) throws {
+    init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         self.init(
@@ -175,7 +166,7 @@ extension CanvasElement {
         )
     }
 
-    nonisolated func encode(to encoder: any Encoder) throws {
+    func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         try container.encode(id, forKey: .id)
@@ -200,17 +191,17 @@ extension CanvasElement {
 
 // MARK: - CanvasElementSnapshot
 
-extension CanvasElementSnapshot {
+nonisolated extension CanvasElementSnapshot {
     /// スナップショットは `CanvasElement` から `unionSourceElements` を除いたものなので、
     /// 同じ表現を使い回します。定義を二重に持たないことが目的です。
     ///
     /// 結合はネストしません（結合結果をさらに結合しても構成元は 1 段のまま）。
     /// スナップショット自身が構成元を持つことはないため、この往復で情報は落ちません。
-    nonisolated init(from decoder: any Decoder) throws {
+    init(from decoder: any Decoder) throws {
         self.init(element: try CanvasElement(from: decoder))
     }
 
-    nonisolated func encode(to encoder: any Encoder) throws {
+    func encode(to encoder: any Encoder) throws {
         try element.encode(to: encoder)
     }
 }

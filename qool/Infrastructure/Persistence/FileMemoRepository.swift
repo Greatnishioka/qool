@@ -15,7 +15,9 @@ import os
 ///
 /// 1 メモ = 1 ディレクトリにしているため、**壊れても被害はそのメモだけ**に留まります。
 /// 読み込みに失敗したメモは読み飛ばし、残りを返します。
-final class FileMemoRepository: MemoRepository {
+/// 可変状態を持たない（全プロパティが `let`）ため `nonisolated` です。
+/// 非同期化したときにバックグラウンドから呼べるようにする意図もあります。
+nonisolated final class FileMemoRepository: MemoRepository {
     /// 保存フォーマットの版。互換性を壊す変更を入れるときに上げます。
     static let schemaVersion = 1
 
@@ -40,11 +42,9 @@ final class FileMemoRepository: MemoRepository {
     /// 標準の `.iso8601` 戦略は秒までしか持たないため、ミリ秒まで残す指定にしています。
     /// メモは短時間に何度も保存されるので、秒単位だと更新順が決まりません。
     /// なお `Date` は秒の実数値なので、**ミリ秒より下は往復で丸められます。**
-    private static let dateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
+    /// `ISO8601DateFormatter` は参照型で `Sendable` ではないため使いません。
+    /// こちらは値型なので、共有しても安全です。
+    private static let dateFormat = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -53,7 +53,7 @@ final class FileMemoRepository: MemoRepository {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .custom { date, encoder in
             var container = encoder.singleValueContainer()
-            try container.encode(FileMemoRepository.dateFormatter.string(from: date))
+            try container.encode(FileMemoRepository.dateFormat.format(date))
         }
         return encoder
     }()
@@ -64,14 +64,14 @@ final class FileMemoRepository: MemoRepository {
             let container = try decoder.singleValueContainer()
             let text = try container.decode(String.self)
 
-            guard let date = FileMemoRepository.dateFormatter.date(from: text) else {
+            do {
+                return try FileMemoRepository.dateFormat.parse(text)
+            } catch {
                 throw DecodingError.dataCorruptedError(
                     in: container,
                     debugDescription: "ISO8601 の日時として読めません: \(text)"
                 )
             }
-
-            return date
         }
         return decoder
     }()
@@ -180,7 +180,21 @@ final class FileMemoRepository: MemoRepository {
             return nil
         }
 
+        // ディレクトリ名はメモの ID です。
+        // Finder でメモのディレクトリを複製されると、同じ ID のメモが 2 件読み込まれ、
+        // `List` の識別子が重複します。名前が ID として読めることを先に要求します。
+        guard let directoryID = UUID(uuidString: directory.lastPathComponent) else {
+            return nil
+        }
+
         let fileURL = directory.appending(path: FileName.memo)
+
+        // `save` はディレクトリを作ってから書き込むため、その間に終了すると
+        // `memo.json` のないディレクトリが残ります。読み込みのたびにエラーを出さず、
+        // 静かに読み飛ばします。
+        guard fileManager.fileExists(atPath: fileURL.path(percentEncoded: false)) else {
+            return nil
+        }
 
         do {
             let data = try Data(contentsOf: fileURL)
@@ -193,6 +207,20 @@ final class FileMemoRepository: MemoRepository {
                     未知のスキーマ版のため読み飛ばしました \
                     path=\(directory.lastPathComponent, privacy: .public) \
                     version=\(stored.schemaVersion, privacy: .public)
+                    """
+                )
+                return nil
+            }
+
+            // 複製されたディレクトリは名前と中身の ID がずれます。
+            // 読み込むと同じ ID のメモが二重に現れ、保存は正規のディレクトリへ向かうため、
+            // 複製側は古いまま残り続けます。
+            guard stored.memo.id == directoryID else {
+                logger.error(
+                    """
+                    ディレクトリ名とメモ ID が一致しないため読み飛ばしました \
+                    path=\(directory.lastPathComponent, privacy: .public) \
+                    id=\(stored.memo.id, privacy: .public)
                     """
                 )
                 return nil
