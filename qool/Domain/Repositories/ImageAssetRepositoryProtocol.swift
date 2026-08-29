@@ -12,7 +12,7 @@ import Foundation
 ///
 /// `NSImage` ではなく `Data` を扱うのは、Domain を UI フレームワークから独立させるためです。
 /// 画像型への変換は Presentation / Infrastructure の責務になります。
-nonisolated protocol ImageAssetRepository {
+nonisolated protocol ImageAssetRepositoryProtocol {
     /// 保存されている画像のバイト列。存在しなければ `nil`。
     func data(for id: UUID) -> Data?
 

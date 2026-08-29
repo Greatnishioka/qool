@@ -29,7 +29,7 @@ import Synchronization
 ///
 /// リトライ上限に達しても保留は残したままにし、`.failed` を通知します。
 /// `flush()`（画面の「再試行」）から再開できます。
-nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonitoring {
+nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryProtocol, MemoWriteMonitoringProtocol {
     /// 1 件のメモに対する「あるべき状態」。
     private enum Mutation: Sendable {
         case upsert(Memo)
@@ -74,14 +74,14 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
         .milliseconds(500 * (1 << (attempt - 1)))
     }
 
-    private let base: any MemoRepository
+    private let base: any MemoRepositoryProtocol
     private let interval: Duration
     private let state = Mutex(State())
 
     let writeStates: AsyncStream<MemoWriteState>
     private let stateContinuation: AsyncStream<MemoWriteState>.Continuation
 
-    init(wrapping base: any MemoRepository, interval: Duration = .milliseconds(500)) {
+    init(wrapping base: any MemoRepositoryProtocol, interval: Duration = .milliseconds(500)) {
         self.base = base
         self.interval = interval
 
@@ -102,7 +102,7 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
         stateContinuation.finish()
     }
 
-    // MARK: - MemoRepository
+    // MARK: - MemoRepositoryProtocol
 
     /// 包んだリポジトリの内容に、未書き込みの意図を重ねて返す。
     ///
@@ -167,12 +167,8 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
         }
 
         guard unmet.isEmpty else {
-            throw WriteFailure.notPersisted(count: unmet.count)
+            throw MemoWriteFailure.notPersisted(count: unmet.count)
         }
-    }
-
-    enum WriteFailure: Error {
-        case notPersisted(count: Int)
     }
 
     // MARK: - 意図の記録
@@ -223,7 +219,7 @@ nonisolated final class DebouncedMemoRepository: MemoRepository, MemoWriteMonito
     ///
     /// **1 件が失敗しても他のメモの処理は続けます。** 途中で抜けると、
     /// 書けないメモが 1 件あるだけで他のメモが永久に保存されなくなります
-    /// （`FileMemoRepository` は 1 メモ = 1 ディレクトリなので、ID 単位の失敗は現実に起こります）。
+    /// （`FileMemoRepositoryInfrastructure` は 1 メモ = 1 ディレクトリなので、ID 単位の失敗は現実に起こります）。
     private func drain() async {
         var blocked: Set<Memo.ID> = []
 

@@ -10,7 +10,7 @@ import os
 ///   memos/
 ///     <memo-uuid>/
 ///       memo.json
-///       assets/          （画像アセット。ImageAssetRepository が使う）
+///       assets/          （画像アセット。ImageAssetRepositoryProtocol が使う）
 /// ```
 ///
 /// 1 メモ = 1 ディレクトリにしているため、**壊れても被害はそのメモだけ**に留まります。
@@ -20,7 +20,7 @@ import os
 /// `@unchecked Sendable` の根拠: 格納プロパティはすべて `let` で、
 /// `JSONEncoder` / `JSONDecoder` は呼び出しごとに作るため共有していません。
 /// `FileManager` は Apple がスレッド安全と明記している範囲でのみ使っています。
-nonisolated final class FileMemoRepository: MemoRepository, @unchecked Sendable {
+nonisolated final class FileMemoRepositoryInfrastructure: MemoRepositoryProtocol, @unchecked Sendable {
     /// 保存フォーマットの版。互換性を壊す変更を入れるときに上げます。
     static let schemaVersion = 1
 
@@ -56,7 +56,7 @@ nonisolated final class FileMemoRepository: MemoRepository, @unchecked Sendable 
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .custom { date, encoder in
             var container = encoder.singleValueContainer()
-            try container.encode(FileMemoRepository.dateFormat.format(date))
+            try container.encode(FileMemoRepositoryInfrastructure.dateFormat.format(date))
         }
         return encoder
     }
@@ -68,7 +68,7 @@ nonisolated final class FileMemoRepository: MemoRepository, @unchecked Sendable 
             let text = try container.decode(String.self)
 
             do {
-                return try FileMemoRepository.dateFormat.parse(text)
+                return try FileMemoRepositoryInfrastructure.dateFormat.parse(text)
             } catch {
                 throw DecodingError.dataCorruptedError(
                     in: container,
@@ -81,7 +81,7 @@ nonisolated final class FileMemoRepository: MemoRepository, @unchecked Sendable 
 
     /// - Parameter rootDirectory: 保存先の親。テストでは一時ディレクトリを渡します。
     init(
-        rootDirectory: URL = FileMemoRepository.defaultRootDirectory,
+        rootDirectory: URL = FileMemoRepositoryInfrastructure.defaultRootDirectory,
         fileManager: FileManager = .default
     ) {
         self.rootDirectory = rootDirectory
@@ -101,7 +101,7 @@ nonisolated final class FileMemoRepository: MemoRepository, @unchecked Sendable 
         return applicationSupport.appending(path: "qool", directoryHint: .isDirectory)
     }
 
-    // MARK: - MemoRepository
+    // MARK: - MemoRepositoryProtocol
 
     func loadMemos() throws -> [Memo] {
         let memosDirectory = memosDirectory
@@ -161,7 +161,7 @@ nonisolated final class FileMemoRepository: MemoRepository, @unchecked Sendable 
         memosDirectory.appending(path: id.uuidString, directoryHint: .isDirectory)
     }
 
-    /// 画像アセットの置き場所。`ImageAssetRepository` の実装から使う想定です。
+    /// 画像アセットの置き場所。`ImageAssetRepositoryProtocol` の実装から使う想定です。
     func assetsDirectory(for id: Memo.ID) -> URL {
         memoDirectory(for: id).appending(path: FileName.assetsDirectory, directoryHint: .isDirectory)
     }

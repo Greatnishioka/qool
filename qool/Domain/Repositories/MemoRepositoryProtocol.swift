@@ -2,7 +2,7 @@ import Foundation
 
 /// `Sendable` を要求するのは、実装が実行文脈をまたいで共有されるためです。
 /// 書き込みは呼び出し元のアクタを離れて実行されます。
-nonisolated protocol MemoRepository: Sendable {
+nonisolated protocol MemoRepositoryProtocol: Sendable {
     /// 全メモを読み出す。
     ///
     /// **同期のままにしています。** 起動時に一度しか呼ばれず、`memo.json` は画像を含まないため
@@ -23,12 +23,12 @@ nonisolated protocol MemoRepository: Sendable {
 
     /// 保留している書き込みを確定する。
     ///
-    /// 書き込みを遅らせる実装（[DebouncedMemoRepository](../../Infrastructure/Persistence/DebouncedMemoRepository.swift)）の
+    /// 書き込みを遅らせる実装（[DebouncedMemoRepositoryInfrastructure](../../Infrastructure/Persistence/DebouncedMemoRepositoryInfrastructure.swift)）の
     /// ためにあります。**アプリ終了時とパネルを閉じるときに必ず呼ぶ必要があります。**
     /// 即座に書く実装では何もしません。
     func flush() async throws
 }
 
-nonisolated extension MemoRepository {
+nonisolated extension MemoRepositoryProtocol {
     func flush() async throws {}
 }

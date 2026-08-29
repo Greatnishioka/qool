@@ -3,9 +3,9 @@ import Foundation
 /// 保留している書き込みを確定する。
 ///
 /// アプリ終了時とパネルを閉じるときに実行しないと、
-/// [まとめ書き](../../Infrastructure/Persistence/DebouncedMemoRepository.swift)の分が失われます。
+/// [まとめ書き](../../Infrastructure/Persistence/DebouncedMemoRepositoryInfrastructure.swift)の分が失われます。
 nonisolated struct FlushMemosUseCase {
-    var repository: MemoRepository
+    var repository: MemoRepositoryProtocol
 
     func execute() async throws {
         try await repository.flush()
@@ -16,7 +16,7 @@ nonisolated struct FlushMemosUseCase {
 ///
 /// まとめ書きをしないリポジトリでは監視対象がないため、`nil` を受け取ります。
 nonisolated struct ObserveWriteStatesUseCase {
-    var monitor: (any MemoWriteMonitoring)?
+    var monitor: (any MemoWriteMonitoringProtocol)?
 
     func execute() -> AsyncStream<MemoWriteState> {
         monitor?.writeStates ?? AsyncStream { $0.finish() }
@@ -24,7 +24,7 @@ nonisolated struct ObserveWriteStatesUseCase {
 }
 
 nonisolated struct LoadMemosUseCase {
-    var repository: MemoRepository
+    var repository: MemoRepositoryProtocol
 
     func execute() throws -> [Memo] {
         try repository.loadMemos()
@@ -32,7 +32,7 @@ nonisolated struct LoadMemosUseCase {
 }
 
 nonisolated struct CreateMemoUseCase {
-    var repository: MemoRepository
+    var repository: MemoRepositoryProtocol
 
     func execute() async throws -> Memo {
         let memo = Memo(title: "新規メモ")
@@ -43,7 +43,7 @@ nonisolated struct CreateMemoUseCase {
 }
 
 nonisolated struct SaveMemoUseCase {
-    var repository: MemoRepository
+    var repository: MemoRepositoryProtocol
 
     /// 保存した内容を返す。
     ///

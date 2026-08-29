@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 /// アプリの合成ルート。ViewModel を所有し、終了前に書き込みを確定させます。
 ///
@@ -66,20 +65,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             return didPersist
         }
-    }
-}
-
-@main
-struct QoolApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-
-    var body: some Scene {
-        // メニューバー項目。Dock には出さない（Info.plist の LSUIElement）。
-        MenuBarExtra {
-            MemoPanelView(viewModel: appDelegate.viewModel)
-        } label: {
-            Image(systemName: "square.on.square.dashed")
-        }
-        .menuBarExtraStyle(.window)
     }
 }

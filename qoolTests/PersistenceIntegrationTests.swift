@@ -3,7 +3,7 @@ import Synchronization
 import Testing
 @testable import qool
 
-/// **本番と同じ構成**（`DebouncedMemoRepository` を挟む）での検証。
+/// **本番と同じ構成**（`DebouncedMemoRepositoryInfrastructure` を挟む）での検証。
 ///
 /// 偽のリポジトリを `AppRootViewModel` へ直接渡すテストは、まとめ書きを通らないため
 /// 「単体テストは通るが実機では動かない」状態を見逃します。実際に見逃したので、
@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct PersistenceIntegrationTests {
     /// 失敗を切り替えられる土台。
-    private final class ControllableRepository: MemoRepository {
+    private final class ControllableRepository: MemoRepositoryProtocol {
         private struct State {
             var storage: [Memo] = []
             var failsToSave = false
@@ -91,9 +91,9 @@ struct PersistenceIntegrationTests {
 
     private func makeStack(
         interval: Duration = .milliseconds(20)
-    ) -> (AppRootViewModel, DebouncedMemoRepository, ControllableRepository) {
+    ) -> (AppRootViewModel, DebouncedMemoRepositoryInfrastructure, ControllableRepository) {
         let base = ControllableRepository()
-        let debounced = DebouncedMemoRepository(wrapping: base, interval: interval)
+        let debounced = DebouncedMemoRepositoryInfrastructure(wrapping: base, interval: interval)
         let viewModel = AppRootViewModel.bootstrap(repository: debounced, monitor: debounced)
 
         return (viewModel, debounced, base)
@@ -101,7 +101,7 @@ struct PersistenceIntegrationTests {
 
     /// 状態が期待どおりになるまで待つ。監視は非同期に届くため。
     private func waitForStatus(
-        _ expected: AppRootViewModel.PersistenceStatus,
+        _ expected: MemoPersistenceStatus,
         in viewModel: AppRootViewModel,
         timeout: Duration = .seconds(5)
     ) async -> Bool {

@@ -3,16 +3,6 @@ import Foundation
 
 @MainActor
 final class AppRootViewModel: ObservableObject {
-    /// 永続化の状態。画面に出す内容を決めるために使います。
-    enum PersistenceStatus: Equatable {
-        /// 保存できている。何も表示しません。
-        case ok
-        /// 保存に失敗し、自動で再試行している。
-        case retrying
-        /// 再試行しても失敗が続いている。
-        case failing
-    }
-
     /// この回数を超えて再試行が続いたら、表示を「原因を確認してほしい」側へ切り替えます。
     private static let attemptsBeforeEscalation = 2
 
@@ -22,7 +12,7 @@ final class AppRootViewModel: ObservableObject {
     @Published var imageAdjustment = ImageAdjustment.default
 
     /// 保存の状態。失敗しているときだけ画面に出します。
-    @Published private(set) var persistenceStatus: PersistenceStatus = .ok
+    @Published private(set) var persistenceStatus: MemoPersistenceStatus = .ok
 
     /// 一覧を読み込めなかった。**「メモが 0 件」と区別する**ために持ちます。
     /// 同じ空状態を出すと、データが消えたと誤解されます。
@@ -83,18 +73,18 @@ final class AppRootViewModel: ObservableObject {
 
     /// 実アプリ用の組み立て。保存先はディスク。
     ///
-    /// テストやプレビューでは `InMemoryMemoRepository` を渡した
+    /// テストやプレビューでは `InMemoryMemoRepositoryInfrastructure` を渡した
     /// `bootstrap(repository:)` を使ってください。
     static func bootstrap() -> AppRootViewModel {
         // まとめ書きを挟む。flush はアプリ側で呼ぶ必要があります。
-        let repository = DebouncedMemoRepository(wrapping: FileMemoRepository())
+        let repository = DebouncedMemoRepositoryInfrastructure(wrapping: FileMemoRepositoryInfrastructure())
 
         return bootstrap(repository: repository, monitor: repository)
     }
 
     static func bootstrap(
-        repository: MemoRepository,
-        monitor: (any MemoWriteMonitoring)? = nil
+        repository: MemoRepositoryProtocol,
+        monitor: (any MemoWriteMonitoringProtocol)? = nil
     ) -> AppRootViewModel {
         AppRootViewModel(
             loadMemosUseCase: LoadMemosUseCase(repository: repository),
@@ -201,7 +191,7 @@ final class AppRootViewModel: ObservableObject {
 
     /// 保存済みのメモを一覧へ反映する。既にあれば置き換え、無ければ追加する。
     ///
-    /// 並び順は `MemoRepository.loadMemos()` と同じ **更新日時の降順**に揃えます。
+    /// 並び順は `MemoRepositoryProtocol.loadMemos()` と同じ **更新日時の降順**に揃えます。
     /// ここがずれると、再起動の前後で一覧の並びが変わってしまいます。
     private func apply(_ memo: Memo) {
         var updatedMemos = memos
