@@ -3,10 +3,32 @@ import Foundation
 
 @MainActor
 final class AppRootViewModel: ObservableObject {
+    /// 永続化の状態。画面に出す内容を決めるために使います。
+    enum PersistenceStatus: Equatable {
+        /// 保存できている。何も表示しません。
+        case ok
+        /// 保存に失敗し、自動で再試行している。
+        case retrying
+        /// 再試行しても失敗が続いている。
+        case failing
+    }
+
+    /// この回数を超えて失敗が続いたら、表示を「原因を確認してほしい」側へ切り替えます。
+    private static let failureCountBeforeEscalation = 3
+
     @Published private(set) var memos: [Memo] = []
     @Published var selectedMemo: Memo?
     @Published var cutoutDraft = ImageCutoutDraft()
     @Published var imageAdjustment = ImageAdjustment.default
+
+    /// 保存の状態。失敗しているときだけ画面に出します。
+    @Published private(set) var persistenceStatus: PersistenceStatus = .ok
+
+    /// 一覧を読み込めなかった。**「メモが 0 件」と区別する**ために持ちます。
+    /// 同じ空状態を出すと、データが消えたと誤解されます。
+    @Published private(set) var didFailToLoad = false
+
+    private var saveFailureCount = 0
 
     private let loadMemosUseCase: LoadMemosUseCase
     private let createMemoUseCase: CreateMemoUseCase
@@ -50,49 +72,71 @@ final class AppRootViewModel: ObservableObject {
 
     /// 全メモをディスクから読み直す。
     ///
-    /// **起動時のみ呼びます。** 保存のたびに呼ぶと、1 件の書き込みに対して
-    /// 全メモの読み込みと復号が走ります（スライダー操作 1 目盛りごとに全件、という状態でした）。
+    /// **起動時と、読み込み失敗からの再試行でのみ呼びます。** 保存のたびに呼ぶと、
+    /// 1 件の書き込みに対して全メモの読み込みと復号が走ります。
     /// 保存後の一覧更新は `apply(_:)` がメモリ上で行います。
     func reload() {
-        memos = loadMemosUseCase.execute()
+        do {
+            memos = try loadMemosUseCase.execute()
+            didFailToLoad = false
+        } catch {
+            // 読めなかったときに空配列を入れると「メモが 0 件」と区別できません。
+            // 手元の内容はそのまま残します。
+            didFailToLoad = true
+        }
     }
 
-    func createMemo() -> Memo {
-        let memo = createMemoUseCase.execute()
-        apply(memo)
-        selectedMemo = memo
+    func createMemo() async -> Memo? {
+        do {
+            let memo = try await createMemoUseCase.execute()
+            recordSaveSuccess()
+            apply(memo)
+            selectedMemo = memo
 
-        return memo
+            return memo
+        } catch {
+            recordSaveFailure()
+
+            return nil
+        }
     }
 
     func open(_ memo: Memo) {
         selectedMemo = memo
     }
 
-    func addElement(using tool: CanvasTool) {
+    func addElement(using tool: CanvasTool) async {
         guard var memo = selectedMemo, let element = elementFactory.makeElement(for: tool) else {
             return
         }
 
         memo.canvas.elements.append(element)
-        saveMemo(memo)
+        await saveMemo(memo)
     }
 
-    func saveMemo(_ memo: Memo) {
-        // 戻り値を使うのが要点。`execute` が更新日時を差し替えるため、
-        // 引数の `memo` をそのまま一覧へ入れると更新日時が古いままになります。
-        let savedMemo = saveMemoUseCase.execute(memo)
+    func saveMemo(_ memo: Memo) async {
+        do {
+            // 戻り値を使うのが要点。`execute` が更新日時を差し替えるため、
+            // 引数の `memo` をそのまま一覧へ入れると更新日時が古いままになります。
+            let savedMemo = try await saveMemoUseCase.execute(memo)
 
-        selectedMemo = savedMemo
-        apply(savedMemo)
+            recordSaveSuccess()
+            selectedMemo = savedMemo
+            apply(savedMemo)
+        } catch {
+            recordSaveFailure()
+            // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
+            selectedMemo = memo
+            apply(memo)
+        }
     }
 
     func updateAdjustment(_ adjustment: ImageAdjustment) {
         imageAdjustment = adjustment
     }
 
-    func commitImageMemo() {
-        addElement(using: .image)
+    func commitImageMemo() async {
+        await addElement(using: .image)
         cutoutDraft = ImageCutoutDraft()
         imageAdjustment = .default
     }
@@ -101,8 +145,34 @@ final class AppRootViewModel: ObservableObject {
     ///
     /// **アプリ終了時とパネルを閉じるときに必ず呼んでください。**
     /// 呼び忘れると、まとめ書き待ちの編集が失われます。
-    func flush() {
-        flushMemosUseCase.execute()
+    func flush() async {
+        do {
+            try await flushMemosUseCase.execute()
+            recordSaveSuccess()
+        } catch {
+            recordSaveFailure()
+        }
+    }
+
+    /// 画面の「再試行」から呼びます。
+    func retryFailedWork() async {
+        if didFailToLoad {
+            reload()
+        }
+
+        await flush()
+    }
+
+    // MARK: -
+
+    private func recordSaveSuccess() {
+        saveFailureCount = 0
+        persistenceStatus = .ok
+    }
+
+    private func recordSaveFailure() {
+        saveFailureCount += 1
+        persistenceStatus = saveFailureCount >= Self.failureCountBeforeEscalation ? .failing : .retrying
     }
 
     /// 保存済みのメモを一覧へ反映する。既にあれば置き換え、無ければ追加する。

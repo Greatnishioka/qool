@@ -8,15 +8,15 @@ import Testing
 struct FileMemoRepositoryTests {
     /// 一時ディレクトリを用意し、処理の後で必ず片付ける。
     private func withTemporaryRepository(
-        _ body: (FileMemoRepository, URL) throws -> Void
-    ) throws {
+        _ body: (FileMemoRepository, URL) async throws -> Void
+    ) async throws {
         let root = URL.temporaryDirectory.appending(
             path: "qool-tests-\(UUID().uuidString)",
             directoryHint: .isDirectory
         )
         defer { try? FileManager.default.removeItem(at: root) }
 
-        try body(FileMemoRepository(rootDirectory: root), root)
+        try await body(FileMemoRepository(rootDirectory: root), root)
     }
 
     private func memo(title: String, updatedAt: Date = Date()) -> Memo {
@@ -42,18 +42,18 @@ struct FileMemoRepositoryTests {
 
     // MARK: -
 
-    @Test func 保存していないうちは空を返す() throws {
-        try withTemporaryRepository { repository, _ in
-            #expect(repository.loadMemos().isEmpty)
+    @Test func 保存していないうちは空を返す() async throws {
+        try await withTemporaryRepository { repository, _ in
+            try #expect(repository.loadMemos().isEmpty)
         }
     }
 
-    @Test func 保存したメモを読み戻せる() throws {
-        try withTemporaryRepository { repository, _ in
+    @Test func 保存したメモを読み戻せる() async throws {
+        try await withTemporaryRepository { repository, _ in
             let original = memo(title: "買い物メモ")
-            repository.save(original)
+            try await repository.save(original)
 
-            let loaded = repository.loadMemos()
+            let loaded = try repository.loadMemos()
 
             #expect(loaded.count == 1)
             #expect(loaded.first?.id == original.id)
@@ -62,10 +62,10 @@ struct FileMemoRepositoryTests {
         }
     }
 
-    @Test func 更新日時はミリ秒まで保たれる() throws {
-        try withTemporaryRepository { repository, _ in
+    @Test func 更新日時はミリ秒まで保たれる() async throws {
+        try await withTemporaryRepository { repository, _ in
             let original = memo(title: "日時")
-            repository.save(original)
+            try await repository.save(original)
 
             let loaded = try #require(repository.loadMemos().first)
             let difference = abs(loaded.updatedAt.timeIntervalSince(original.updatedAt))
@@ -75,41 +75,41 @@ struct FileMemoRepositoryTests {
         }
     }
 
-    @Test func 同じIDで保存すると上書きされる() throws {
-        try withTemporaryRepository { repository, _ in
+    @Test func 同じIDで保存すると上書きされる() async throws {
+        try await withTemporaryRepository { repository, _ in
             var original = memo(title: "初版")
-            repository.save(original)
+            try await repository.save(original)
 
             original.title = "改訂版"
-            repository.save(original)
+            try await repository.save(original)
 
-            let loaded = repository.loadMemos()
+            let loaded = try repository.loadMemos()
 
             #expect(loaded.count == 1)
             #expect(loaded.first?.title == "改訂版")
         }
     }
 
-    @Test func 更新日時の新しい順に並ぶ() throws {
-        try withTemporaryRepository { repository, _ in
+    @Test func 更新日時の新しい順に並ぶ() async throws {
+        try await withTemporaryRepository { repository, _ in
             let now = Date()
-            repository.save(memo(title: "古い", updatedAt: now.addingTimeInterval(-3600)))
-            repository.save(memo(title: "新しい", updatedAt: now))
-            repository.save(memo(title: "中間", updatedAt: now.addingTimeInterval(-60)))
+            try await repository.save(memo(title: "古い", updatedAt: now.addingTimeInterval(-3600)))
+            try await repository.save(memo(title: "新しい", updatedAt: now))
+            try await repository.save(memo(title: "中間", updatedAt: now.addingTimeInterval(-60)))
 
-            #expect(repository.loadMemos().map(\.title) == ["新しい", "中間", "古い"])
+            try #expect(repository.loadMemos().map(\.title) == ["新しい", "中間", "古い"])
         }
     }
 
-    @Test func 削除するとファイルごと消える() throws {
-        try withTemporaryRepository { repository, root in
+    @Test func 削除するとファイルごと消える() async throws {
+        try await withTemporaryRepository { repository, root in
             let target = memo(title: "消す")
-            repository.save(target)
-            repository.save(memo(title: "残す"))
+            try await repository.save(target)
+            try await repository.save(memo(title: "残す"))
 
-            repository.delete(id: target.id)
+            try await repository.delete(id: target.id)
 
-            #expect(repository.loadMemos().map(\.title) == ["残す"])
+            try #expect(repository.loadMemos().map(\.title) == ["残す"])
 
             let directory = root
                 .appending(path: "memos", directoryHint: .isDirectory)
@@ -118,17 +118,17 @@ struct FileMemoRepositoryTests {
         }
     }
 
-    @Test func 存在しないメモを削除しても落ちない() throws {
-        try withTemporaryRepository { repository, _ in
-            repository.delete(id: UUID())
+    @Test func 存在しないメモを削除しても落ちない() async throws {
+        try await withTemporaryRepository { repository, _ in
+            try await repository.delete(id: UUID())
 
-            #expect(repository.loadMemos().isEmpty)
+            try #expect(repository.loadMemos().isEmpty)
         }
     }
 
-    @Test func 壊れたメモがあっても他のメモは読める() throws {
-        try withTemporaryRepository { repository, root in
-            repository.save(memo(title: "無事"))
+    @Test func 壊れたメモがあっても他のメモは読める() async throws {
+        try await withTemporaryRepository { repository, root in
+            try await repository.save(memo(title: "無事"))
 
             // 1 メモ = 1 ディレクトリなので、被害は該当メモだけに留まるはず。
             let brokenDirectory = root
@@ -138,13 +138,13 @@ struct FileMemoRepositoryTests {
             try Data("これは JSON ではありません".utf8)
                 .write(to: brokenDirectory.appending(path: "memo.json"))
 
-            #expect(repository.loadMemos().map(\.title) == ["無事"])
+            try #expect(repository.loadMemos().map(\.title) == ["無事"])
         }
     }
 
-    @Test func 未知のスキーマ版は読み飛ばす() throws {
-        try withTemporaryRepository { repository, root in
-            repository.save(memo(title: "無事"))
+    @Test func 未知のスキーマ版は読み飛ばす() async throws {
+        try await withTemporaryRepository { repository, root in
+            try await repository.save(memo(title: "無事"))
 
             let futureDirectory = root
                 .appending(path: "memos", directoryHint: .isDirectory)
@@ -164,14 +164,14 @@ struct FileMemoRepositoryTests {
             try Data(json.utf8).write(to: futureDirectory.appending(path: "memo.json"))
 
             // 新しい版のファイルは読まずに残す。古いアプリが上書きして壊さないため。
-            #expect(repository.loadMemos().map(\.title) == ["無事"])
+            try #expect(repository.loadMemos().map(\.title) == ["無事"])
         }
     }
 
-    @Test func ディレクトリを複製しても二重に読み込まない() throws {
-        try withTemporaryRepository { repository, root in
+    @Test func ディレクトリを複製しても二重に読み込まない() async throws {
+        try await withTemporaryRepository { repository, root in
             let original = memo(title: "元")
-            repository.save(original)
+            try await repository.save(original)
 
             // Finder での複製に相当。ディレクトリ名だけが変わり、中身の ID は元のまま。
             let memosDirectory = root.appending(path: "memos", directoryHint: .isDirectory)
@@ -186,26 +186,26 @@ struct FileMemoRepositoryTests {
             try FileManager.default.copyItem(at: source, to: duplicate)
 
             // ID が重複したまま読み込むと List の識別子が衝突する。
-            #expect(repository.loadMemos().count == 1)
+            try #expect(repository.loadMemos().count == 1)
         }
     }
 
-    @Test func ID以外の名前のディレクトリは無視する() throws {
-        try withTemporaryRepository { repository, root in
-            repository.save(memo(title: "無事"))
+    @Test func ID以外の名前のディレクトリは無視する() async throws {
+        try await withTemporaryRepository { repository, root in
+            try await repository.save(memo(title: "無事"))
 
             let strayDirectory = root
                 .appending(path: "memos", directoryHint: .isDirectory)
                 .appending(path: "スクリーンショット", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: strayDirectory, withIntermediateDirectories: true)
 
-            #expect(repository.loadMemos().map(\.title) == ["無事"])
+            try #expect(repository.loadMemos().map(\.title) == ["無事"])
         }
     }
 
-    @Test func memo_jsonのないディレクトリは静かに読み飛ばす() throws {
-        try withTemporaryRepository { repository, root in
-            repository.save(memo(title: "無事"))
+    @Test func memo_jsonのないディレクトリは静かに読み飛ばす() async throws {
+        try await withTemporaryRepository { repository, root in
+            try await repository.save(memo(title: "無事"))
 
             // 書き込み途中で終了した場合に残る形。
             let emptyDirectory = root
@@ -213,14 +213,14 @@ struct FileMemoRepositoryTests {
                 .appending(path: UUID().uuidString, directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: emptyDirectory, withIntermediateDirectories: true)
 
-            #expect(repository.loadMemos().map(\.title) == ["無事"])
+            try #expect(repository.loadMemos().map(\.title) == ["無事"])
         }
     }
 
-    @Test func 保存したJSONは人が読める() throws {
-        try withTemporaryRepository { repository, root in
+    @Test func 保存したJSONは人が読める() async throws {
+        try await withTemporaryRepository { repository, root in
             let target = memo(title: "読める")
-            repository.save(target)
+            try await repository.save(target)
 
             let fileURL = root
                 .appending(path: "memos", directoryHint: .isDirectory)

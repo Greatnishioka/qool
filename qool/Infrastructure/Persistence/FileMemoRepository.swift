@@ -17,7 +17,10 @@ import os
 /// 読み込みに失敗したメモは読み飛ばし、残りを返します。
 /// 可変状態を持たない（全プロパティが `let`）ため `nonisolated` です。
 /// 非同期化したときにバックグラウンドから呼べるようにする意図もあります。
-nonisolated final class FileMemoRepository: MemoRepository {
+/// `@unchecked Sendable` の根拠: 格納プロパティはすべて `let` で、
+/// `JSONEncoder` / `JSONDecoder` は呼び出しごとに作るため共有していません。
+/// `FileManager` は Apple がスレッド安全と明記している範囲でのみ使っています。
+nonisolated final class FileMemoRepository: MemoRepository, @unchecked Sendable {
     /// 保存フォーマットの版。互換性を壊す変更を入れるときに上げます。
     static let schemaVersion = 1
 
@@ -46,7 +49,7 @@ nonisolated final class FileMemoRepository: MemoRepository {
     /// こちらは値型なので、共有しても安全です。
     private static let dateFormat = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
-    private let encoder: JSONEncoder = {
+    private var encoder: JSONEncoder {
         let encoder = JSONEncoder()
         // 人が読める形にする（方式 A の利点。壊れたときに手で直せる）。
         // sortedKeys は差分を安定させ、Git や Time Machine と併用しやすくします。
@@ -56,9 +59,9 @@ nonisolated final class FileMemoRepository: MemoRepository {
             try container.encode(FileMemoRepository.dateFormat.format(date))
         }
         return encoder
-    }()
+    }
 
-    private let decoder: JSONDecoder = {
+    private var decoder: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
@@ -74,7 +77,7 @@ nonisolated final class FileMemoRepository: MemoRepository {
             }
         }
         return decoder
-    }()
+    }
 
     /// - Parameter rootDirectory: 保存先の親。テストでは一時ディレクトリを渡します。
     init(
@@ -100,60 +103,52 @@ nonisolated final class FileMemoRepository: MemoRepository {
 
     // MARK: - MemoRepository
 
-    func loadMemos() -> [Memo] {
+    func loadMemos() throws -> [Memo] {
         let memosDirectory = memosDirectory
 
+        // 一度も保存していなければディレクトリがありません。これは失敗ではありません。
         guard fileManager.fileExists(atPath: memosDirectory.path(percentEncoded: false)) else {
             return []
         }
 
-        let directories: [URL]
-        do {
-            directories = try fileManager.contentsOfDirectory(
-                at: memosDirectory,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
-            logger.error("メモ一覧の読み込みに失敗しました: \(error.localizedDescription, privacy: .public)")
-            return []
-        }
+        // ここで投げるのは「一覧そのものが読めない」場合だけです。
+        // 個々のメモの失敗は loadMemo が nil を返して読み飛ばします。
+        let directories = try fileManager.contentsOfDirectory(
+            at: memosDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
 
         return directories
             .compactMap(loadMemo(inDirectory:))
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    func save(_ memo: Memo) {
+    /// `@concurrent` は「呼び出し元のアクタから離れて実行する」指定です。
+    ///
+    /// これがないと、`SWIFT_APPROACHABLE_CONCURRENCY` の既定により
+    /// **呼び出し元（MainActor）の上で動いてしまい、非同期にした意味がありません。**
+    @concurrent
+    func save(_ memo: Memo) async throws {
         let directory = memoDirectory(for: memo.id)
 
-        do {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            let data = try encoder.encode(StoredMemo(schemaVersion: Self.schemaVersion, memo: memo))
-            // アトミック書き込み。編集のたびに保存が走るため、
-            // 書き込み中のクラッシュで memo.json が半端な状態になるのを防ぎます。
-            try data.write(to: directory.appending(path: FileName.memo), options: .atomic)
-        } catch {
-            logger.error(
-                "メモの保存に失敗しました id=\(memo.id, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-        }
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try encoder.encode(StoredMemo(schemaVersion: Self.schemaVersion, memo: memo))
+        // アトミック書き込み。編集のたびに保存が走るため、
+        // 書き込み中のクラッシュで memo.json が半端な状態になるのを防ぎます。
+        try data.write(to: directory.appending(path: FileName.memo), options: .atomic)
     }
 
-    func delete(id: Memo.ID) {
+    @concurrent
+    func delete(id: Memo.ID) async throws {
         let directory = memoDirectory(for: id)
 
+        // 存在しないものの削除は成功として扱います。
         guard fileManager.fileExists(atPath: directory.path(percentEncoded: false)) else {
             return
         }
 
-        do {
-            try fileManager.removeItem(at: directory)
-        } catch {
-            logger.error(
-                "メモの削除に失敗しました id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-        }
+        try fileManager.removeItem(at: directory)
     }
 
     // MARK: - 配置

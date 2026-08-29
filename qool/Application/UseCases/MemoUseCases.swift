@@ -7,25 +7,26 @@ import Foundation
 nonisolated struct FlushMemosUseCase {
     var repository: MemoRepository
 
-    func execute() {
-        repository.flush()
+    func execute() async throws {
+        try await repository.flush()
     }
 }
 
 nonisolated struct LoadMemosUseCase {
     var repository: MemoRepository
 
-    func execute() -> [Memo] {
-        repository.loadMemos()
+    func execute() throws -> [Memo] {
+        try repository.loadMemos()
     }
 }
 
 nonisolated struct CreateMemoUseCase {
     var repository: MemoRepository
 
-    func execute() -> Memo {
+    func execute() async throws -> Memo {
         let memo = Memo(title: "新規メモ")
-        repository.save(memo)
+        try await repository.save(memo)
+
         return memo
     }
 }
@@ -38,10 +39,10 @@ nonisolated struct SaveMemoUseCase {
     /// `updatedAt` をここで更新するため、**呼び出し元が持っているメモは保存直後に古くなります。**
     /// 一覧は更新日時の降順で並ぶので、戻り値で置き換えないと並び順が壊れます。
     @discardableResult
-    func execute(_ memo: Memo) -> Memo {
+    func execute(_ memo: Memo) async throws -> Memo {
         var updatedMemo = memo
         updatedMemo.updatedAt = Date()
-        repository.save(updatedMemo)
+        try await repository.save(updatedMemo)
 
         return updatedMemo
     }

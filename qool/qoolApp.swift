@@ -18,7 +18,13 @@ struct QoolApp: App {
             queue: .main
         ) { _ in
             MainActor.assumeIsolated {
-                viewModel.flush()
+                // 終了処理は待ってくれないため、書き込みが終わるまでここで止めます。
+                let semaphore = DispatchSemaphore(value: 0)
+                Task {
+                    await viewModel.flush()
+                    semaphore.signal()
+                }
+                _ = semaphore.wait(timeout: .now() + 2)
             }
         }
     }
@@ -28,7 +34,7 @@ struct QoolApp: App {
         MenuBarExtra {
             MemoPanelView(viewModel: viewModel)
                 .onDisappear {
-                    viewModel.flush()
+                    Task { await viewModel.flush() }
                 }
         } label: {
             Image(systemName: "square.on.square.dashed")
