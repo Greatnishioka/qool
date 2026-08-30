@@ -5,7 +5,7 @@
 
 - View: [`ImageCutoutView`](../../qool/Presentation/Views/ImageCutoutView.swift)
 - プレビュー: [`CutoutPreview`](../../qool/Presentation/Views/Components/CutoutPreview.swift)
-- モデル: `ImageCutoutDraft` / `NormalizedPoint`（[ImageMemoWorkflow.swift](../../qool/Domain/Models/ImageMemoWorkflow.swift)）
+- モデル: `ImageCutoutDraft` / `NormalizedPoint`（[ImageCutoutDraft.swift](../../qool/Domain/Models/ImageCutoutDraft.swift) / [NormalizedPoint.swift](../../qool/Domain/Models/NormalizedPoint.swift)）
 
 ## 導線
 

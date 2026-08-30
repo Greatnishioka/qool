@@ -5,7 +5,7 @@
 - View: [`MemoListView`](../../qool/Presentation/Views/MemoListView.swift)
 - 行コンポーネント: [`MemoRowView`](../../qool/Presentation/Views/Components/MemoRowView.swift)
 - ViewModel: [`AppRootViewModel`](../../qool/Presentation/ViewModels/AppRootViewModel.swift)
-- UseCase: `LoadMemosUseCase` / `CreateMemoUseCase`（[MemoUseCases.swift](../../qool/Application/UseCases/MemoUseCases.swift)）
+- UseCase: `LoadMemosUseCase` / `CreateMemoUseCase`（[Application/UseCases/Memo/](../../qool/Application/UseCases/Memo/)）
 
 ## 画面構成
 

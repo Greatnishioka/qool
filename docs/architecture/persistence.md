@@ -1,11 +1,13 @@
 # 永続化の方式（案）
 
-**ステータス: 方式は A（ファイル + JSON）で決定。** 細部の未確定事項は[決めること](#決めること)を参照。
+**ステータス: 方式 A（ファイル + JSON）で実装済み。** 細部の未確定事項は[決めること](#決めること)を参照。
 
-現状のリポジトリ実装は [`InMemoryMemoRepository`](../../qool/Infrastructure/Persistence/InMemoryMemoRepository.swift) だけで、
-アプリを終了すると内容が消えます。[MVP](../product/mvp.md#mvp-のゴール) の
-「作ったメモをホットキーで呼び出す」は永続化なしには成立しないため、**MVP の必須要素**です。
-方式は決まったので、あとは実装するだけの状態です。
+- メモ本体 — [`FileMemoRepositoryInfrastructure`](../../qool/Infrastructure/Persistence/FileMemoRepositoryInfrastructure.swift)
+- 画像アセット — [`FileImageAssetRepositoryInfrastructure`](../../qool/Infrastructure/Persistence/FileImageAssetRepositoryInfrastructure.swift)
+- ディスク上の配置 — [`MemoStorageLayout`](../../qool/Infrastructure/Persistence/MemoStorageLayout.swift)
+
+[`InMemoryMemoRepositoryInfrastructure`](../../qool/Infrastructure/Persistence/InMemoryMemoRepositoryInfrastructure.swift)
+はテストとプレビュー用として残っています。
 
 ## 保存する必要があるもの
 
@@ -226,14 +228,23 @@ StarWindow は `editedContour`（編集後の輪郭）を設定として保持�
 var imageAssetID: UUID?
 
 // Domain: protocol
-protocol ImageAssetRepository {
-    func image(for id: UUID) -> NSImage?
-    func save(_ image: NSImage) -> UUID
-    func delete(id: UUID)
+protocol ImageAssetRepositoryProtocol: Sendable {
+    func data(for id: UUID, in memoID: Memo.ID) -> Data?
+    @discardableResult
+    func save(_ data: Data, in memoID: Memo.ID) throws -> UUID
+    func delete(id: UUID, in memoID: Memo.ID) throws
 }
 ```
 
 実体の解決は Infrastructure の実装が担い、Presentation はキャッシュ経由で受け取ります。
+
+実装時に 2 点、当初の素案から変えています。
+
+- **`NSImage` ではなく `Data`。** Domain を UI フレームワークから独立させるためです。
+  画像型への変換は Presentation / Infrastructure の責務になります
+- **メモ ID を引数に取る。** 上の[レイアウト](#レイアウト案)が `memos/<memo-uuid>/assets/` である以上、
+  どのメモのものかを指定しないと場所が決まりません。
+  **メモを消せばアセットも一緒に消える**という性質もここから来ています
 
 ### 同一画像の重複
 

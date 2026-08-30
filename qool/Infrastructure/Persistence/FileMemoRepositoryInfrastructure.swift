@@ -16,13 +16,7 @@ nonisolated final class FileMemoRepositoryInfrastructure: MemoRepositoryProtocol
         var memo: Memo
     }
 
-    private enum FileName {
-        static let memo = "memo.json"
-        static let memosDirectory = "memos"
-        static let assetsDirectory = "assets"
-    }
-
-    private let rootDirectory: URL
+    private let layout: MemoStorageLayout
     private let fileManager: FileManager
     private let logger = Logger(subsystem: "dev.ayato.qool", category: "persistence")
 
@@ -63,28 +57,17 @@ nonisolated final class FileMemoRepositoryInfrastructure: MemoRepositoryProtocol
 
     /// - Parameter rootDirectory: 保存先の親。テストでは一時ディレクトリを渡します。
     init(
-        rootDirectory: URL = FileMemoRepositoryInfrastructure.defaultRootDirectory,
+        rootDirectory: URL = MemoStorageLayout.defaultRootDirectory,
         fileManager: FileManager = .default
     ) {
-        self.rootDirectory = rootDirectory
+        self.layout = MemoStorageLayout(rootDirectory: rootDirectory)
         self.fileManager = fileManager
-    }
-
-    /// `~/Library/Application Support/qool/`。保存先はユーザーに選ばせずアプリが管理します
-    /// （[ライブラリ管理型](../../../docs/architecture/persistence.md#どこに置くかは別の判断)）。
-    static var defaultRootDirectory: URL {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? URL.homeDirectory.appending(path: "Library/Application Support", directoryHint: .isDirectory)
-
-        return applicationSupport.appending(path: "qool", directoryHint: .isDirectory)
     }
 
     // MARK: - MemoRepositoryProtocol
 
     func loadMemos() throws -> [Memo] {
-        let memosDirectory = memosDirectory
+        let memosDirectory = layout.memosDirectory
 
         // 一度も保存していなければディレクトリがありません。これは失敗ではありません。
         guard fileManager.fileExists(atPath: memosDirectory.path(percentEncoded: false)) else {
@@ -108,18 +91,18 @@ nonisolated final class FileMemoRepositoryInfrastructure: MemoRepositoryProtocol
     /// **呼び出し元（MainActor）の上で動いてしまい、非同期にした意味がありません。**
     @concurrent
     func save(_ memo: Memo) async throws {
-        let directory = memoDirectory(for: memo.id)
+        let directory = layout.memoDirectory(for: memo.id)
 
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try encoder.encode(StoredMemo(schemaVersion: Self.schemaVersion, memo: memo))
         // アトミック書き込み。編集のたびに保存が走るため、
         // 書き込み中のクラッシュで memo.json が半端な状態になるのを防ぎます。
-        try data.write(to: directory.appending(path: FileName.memo), options: .atomic)
+        try data.write(to: layout.memoFile(for: memo.id), options: .atomic)
     }
 
     @concurrent
     func delete(id: Memo.ID) async throws {
-        let directory = memoDirectory(for: id)
+        let directory = layout.memoDirectory(for: id)
 
         // 存在しないものの削除は成功として扱います。
         guard fileManager.fileExists(atPath: directory.path(percentEncoded: false)) else {
@@ -127,21 +110,6 @@ nonisolated final class FileMemoRepositoryInfrastructure: MemoRepositoryProtocol
         }
 
         try fileManager.removeItem(at: directory)
-    }
-
-    // MARK: - 配置
-
-    private var memosDirectory: URL {
-        rootDirectory.appending(path: FileName.memosDirectory, directoryHint: .isDirectory)
-    }
-
-    private func memoDirectory(for id: Memo.ID) -> URL {
-        memosDirectory.appending(path: id.uuidString, directoryHint: .isDirectory)
-    }
-
-    /// 画像アセットの置き場所。`ImageAssetRepositoryProtocol` の実装から使う想定です。
-    func assetsDirectory(for id: Memo.ID) -> URL {
-        memoDirectory(for: id).appending(path: FileName.assetsDirectory, directoryHint: .isDirectory)
     }
 
     // MARK: - 読み込み
@@ -159,7 +127,7 @@ nonisolated final class FileMemoRepositoryInfrastructure: MemoRepositoryProtocol
             return nil
         }
 
-        let fileURL = directory.appending(path: FileName.memo)
+        let fileURL = directory.appending(path: MemoStorageLayout.memoFileName)
 
         // `save` はディレクトリを作ってから書き込むため、その間に終了すると
         // `memo.json` のないディレクトリが残ります。静かに読み飛ばします。
