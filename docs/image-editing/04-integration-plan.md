@@ -173,16 +173,15 @@ StarWindow は macOS のデスクトップ性能を前提に、重い処理を�
 
 ### 第 1 段階: 土台（MVP 必須）
 
-1. **macOS ターゲット化**
-   qool の `UIKit` 依存 2 ファイルを AppKit へ寄せ、Mac で起動する状態を作る（[4.2](#42-プラットフォーム)）
-2. **座標と輪郭の土台**
-   `ContourSmoother` / `ContourPadding` / `RectangularGuideContour` を `Domain/Services` へ移植。
-   純粋ロジックなので単体テストを書ける（StarWindow にはテストがないので、ここで初めて入る）
-3. **`CanvasElement` の画像対応**
-   画像参照・輪郭・調整パラメータを持てるようにする（[4.3](#43-qool-側のモデル拡張)）
-4. **永続化**
-   メモと画像アセットをディスクへ保存する（[4.4](#44-永続化)）。
-   これがないと「作ったメモを後で呼び出す」が成立せず、MVP に届かない
+1. ~~**macOS ターゲット化**~~ **完了。**
+   Mac で起動する状態を作る（[4.2](#42-プラットフォーム)）
+2. ~~**座標と輪郭の土台**~~ **完了。**
+   `ContourSmoother` / `ContourPadding` / `RectangularGuideContour` を `Domain/Services` へ移植し、
+   単体テストを 30 件追加（[判明した挙動](02-contour-extractors.md#移植時に判明した挙動)）
+3. ~~**`CanvasElement` の画像対応**~~ **完了。**
+   `imageAssetID` / `imageAdjustment` を追加（[4.3](#43-qool-側のモデル拡張)）
+4. ~~**永続化**~~ **完了。**
+   メモと画像アセットをディスクへ保存する（[4.4](#44-永続化)）
 
 ### 第 2 段階: 切り抜きを実用にする（MVP 必須）
 

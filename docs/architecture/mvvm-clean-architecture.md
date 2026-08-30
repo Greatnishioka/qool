@@ -41,8 +41,10 @@ qool/
     Repositories/   MemoRepositoryProtocol / MemoWriteMonitoringProtocol
                     / ImageAssetRepositoryProtocol
     Services/       CanvasElementFactory / CanvasSelectionService / CanvasDraftElementBuilder
-                    + ContourSmoother / ContourPadding / ContourCandidateSelector
-                      / ContourQualityValidator / RectangularGuideContour / CurvePathBuilder（追加予定）
+                    / ContourSmoother / ContourPadding / RectangularGuideContour
+                    + ContourCandidateSelector / ContourQualityValidator
+                      / CurvePathBuilder（追加予定）
+    Support/        CGRect+UnitSpace（正規化座標のヘルパー）
   Infrastructure/
     Enums/          MemoWriteFailure
     Persistence/    MemoStorageLayout（ディスク上の配置）
