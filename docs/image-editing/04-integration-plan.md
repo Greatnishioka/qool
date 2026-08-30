@@ -113,12 +113,13 @@ qool の `ImageAdjustment` にしかない概念はありません。**StarWindo
 
 > 方式の比較と推奨案は [architecture/persistence.md](../architecture/persistence.md) にまとめています。
 
-qool のリポジトリは [`InMemoryMemoRepository`](../../qool/Infrastructure/Persistence/InMemoryMemoRepository.swift) のみで、
-アプリを閉じると消えます。画像を扱うようになると:
+メモと画像アセットのディスク保存は実装済みです。画像を扱ううえで必要だった 2 点は満たしています。
 
-- 元画像 / 切り抜き結果 / マスクをファイルとして保存する仕組みが要る
-- `Memo` の値型に画像を含めない設計（ID 参照 + 画像リポジトリ）にしないと、
-  `@Published var memo` の更新のたびに巨大な値のコピーと `Equatable` 比較が走る
+- 元画像 / 切り抜き結果 / マスクをファイルとして保存する仕組み
+  — [`FileImageAssetRepositoryInfrastructure`](../../qool/Infrastructure/Persistence/FileImageAssetRepositoryInfrastructure.swift)
+- `Memo` の値型に画像を含めない設計（ID 参照 + 画像リポジトリ）
+  — `CanvasElement.imageAssetID`。含めると `@Published var memo` の更新のたびに
+  巨大な値のコピーと `Equatable` 比較が走る
 
 ## 4.5 UI
 

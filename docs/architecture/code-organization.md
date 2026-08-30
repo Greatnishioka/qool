@@ -149,6 +149,10 @@ App/QoolApp.swift  App/AppDelegate.swift
 
 `~Infrastructure` で終える。役割語（`Repository`）は残す。
 
+接尾辞が付くのは **Domain の protocol を実装する型**です。
+`MemoStorageLayout` のような層内部のヘルパーは、素の名前のままにします
+（`MemoStorageLayoutInfrastructure` は読みにくく、得るものがありません）。
+
 | 現在 | 変更後 |
 |------|--------|
 | `FileMemoRepository` | `FileMemoRepositoryInfrastructure` |

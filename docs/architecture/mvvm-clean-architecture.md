@@ -32,6 +32,7 @@ qool/
                     + 輪郭候補の抽出 / マスク編集 / 切り抜き画像の書き出し（追加予定）
   Domain/
     Enums/          CanvasElementKind / CanvasTool / CanvasColor / MemoWriteState
+                    / ImageBlurDirection
     Models/         Memo / Canvas / CanvasElement / CanvasElementSnapshot
                     / CanvasPathContour / NormalizedPoint / RGBAComponents
                     / ImageCutoutDraft / ImageAdjustment
@@ -44,8 +45,10 @@ qool/
                       / ContourQualityValidator / RectangularGuideContour / CurvePathBuilder（追加予定）
   Infrastructure/
     Enums/          MemoWriteFailure
-    Persistence/    FileMemoRepositoryInfrastructure / InMemoryMemoRepositoryInfrastructure
+    Persistence/    MemoStorageLayout（ディスク上の配置）
+                    / FileMemoRepositoryInfrastructure / InMemoryMemoRepositoryInfrastructure
                     / DebouncedMemoRepositoryInfrastructure
+                    / FileImageAssetRepositoryInfrastructure
     Vision/         SubjectMaskExtractor / PreprocessedContourExtractor / ContourDetector（追加予定）
     CoreImage/      GuidedBackgroundContourExtractor / LineColorContourExtractor
                     / ColoredPaperRectangleExtractor / CutoutImageRenderer（追加予定）

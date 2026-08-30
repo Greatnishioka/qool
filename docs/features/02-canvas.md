@@ -112,7 +112,7 @@ SwiftUI の標準ジェスチャではなく、`registerTap(at:)` が自前で�
 
 ## 移動
 
-`moveSelectedElement` → [`CanvasEditingUseCases.moveElements`](../../qool/Application/UseCases/CanvasEditingUseCases.swift)。
+`moveSelectedElement` → [`MoveCanvasElementsUseCase`](../../qool/Application/UseCases/Canvas/MoveCanvasElementsUseCase.swift)。
 
 - 選択中の要素をまとめて平行移動
 - **選択範囲全体の外接矩形がキャンバス外に出ないようにクランプ**（個々の要素ではなくグループ単位）
@@ -143,7 +143,7 @@ SwiftUI の標準ジェスチャではなく、`registerTap(at:)` が自前で�
 
 ## Union (結合)
 
-[`CanvasUnionUseCase`](../../qool/Application/UseCases/CanvasUnionUseCase.swift) が
+[`UnionCanvasElementsUseCase`](../../qool/Application/UseCases/Canvas/UnionCanvasElementsUseCase.swift) が
 外部ライブラリ **[iOverlay](https://github.com/iShape-Swift/iOverlay)** を使ってブーリアン和を計算します。
 
 ### 対象と非対象

@@ -46,10 +46,11 @@ ContentView
 
 ## 永続化について
 
-現状のリポジトリ実装は [`InMemoryMemoRepository`](../../qool/Infrastructure/Persistence/InMemoryMemoRepository.swift) のみです。
+メモは [`FileMemoRepositoryInfrastructure`](../../qool/Infrastructure/Persistence/FileMemoRepositoryInfrastructure.swift)
+がディスクへ保存します（[方式 A](../architecture/persistence.md)）。
 
-- アプリを再起動すると編集内容はすべて失われます
-- 起動時に固定のシードメモ 2 件（「買い物メモ」「切り抜きサンプル」）が入ります
+- [`InMemoryMemoRepositoryInfrastructure`](../../qool/Infrastructure/Persistence/InMemoryMemoRepositoryInfrastructure.swift)
+  はテストとプレビュー用に残っており、固定のシードメモ 2 件（「買い物メモ」「切り抜きサンプル」）を持ちます
 - `MemoRepository.delete(id:)` は定義済みですが、UI からは呼ばれていません
 
 ## 関連ドキュメント

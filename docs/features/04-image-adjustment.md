@@ -5,7 +5,7 @@
 
 - View: [`ImageAdjustmentView`](../../qool/Presentation/Views/ImageAdjustmentView.swift)
 - スライダー: [`AdjustmentSlider`](../../qool/Presentation/Views/Components/AdjustmentSlider.swift)
-- モデル: `ImageAdjustment`（[ImageMemoWorkflow.swift](../../qool/Domain/Models/ImageMemoWorkflow.swift)）
+- モデル: `ImageAdjustment`（[ImageAdjustment.swift](../../qool/Domain/Models/ImageAdjustment.swift)）
 
 ## 画面構成
 

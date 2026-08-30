@@ -15,6 +15,8 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
     var pathPoints: [NormalizedPoint]
     var pathContours: [CanvasPathContour]
     var isClosedPath: Bool
+    var imageAssetID: UUID?
+    var imageAdjustment: ImageAdjustment
 
     init(element: CanvasElement) {
         self.id = element.id
@@ -30,6 +32,8 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
         self.pathPoints = element.pathPoints
         self.pathContours = element.pathContours
         self.isClosedPath = element.isClosedPath
+        self.imageAssetID = element.imageAssetID
+        self.imageAdjustment = element.imageAdjustment
     }
 
     var element: CanvasElement {
@@ -46,7 +50,9 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
             rotationAngleDegrees: rotationAngleDegrees,
             pathPoints: pathPoints,
             pathContours: pathContours,
-            isClosedPath: isClosedPath
+            isClosedPath: isClosedPath,
+            imageAssetID: imageAssetID,
+            imageAdjustment: imageAdjustment
         )
     }
 }

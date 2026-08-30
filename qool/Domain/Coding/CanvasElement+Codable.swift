@@ -21,6 +21,8 @@ nonisolated extension CanvasElement {
         case pathPoints
         case pathContours
         case isClosedPath
+        case imageAssetID
+        case imageAdjustment
         case unionSourceElements
     }
 
@@ -48,6 +50,11 @@ nonisolated extension CanvasElement {
             pathPoints: try container.decodeIfPresent([NormalizedPoint].self, forKey: .pathPoints) ?? [],
             pathContours: try container.decodeIfPresent([CanvasPathContour].self, forKey: .pathContours) ?? [],
             isClosedPath: try container.decodeIfPresent(Bool.self, forKey: .isClosedPath) ?? true,
+            imageAssetID: try container.decodeIfPresent(UUID.self, forKey: .imageAssetID),
+            imageAdjustment: try container.decodeIfPresent(
+                ImageAdjustment.self,
+                forKey: .imageAdjustment
+            ) ?? .default,
             unionSourceElements: try container.decodeIfPresent(
                 [CanvasElementSnapshot].self,
                 forKey: .unionSourceElements
@@ -74,6 +81,8 @@ nonisolated extension CanvasElement {
         try container.encode(pathPoints, forKey: .pathPoints)
         try container.encode(pathContours, forKey: .pathContours)
         try container.encode(isClosedPath, forKey: .isClosedPath)
+        try container.encodeIfPresent(imageAssetID, forKey: .imageAssetID)
+        try container.encode(imageAdjustment, forKey: .imageAdjustment)
         try container.encode(unionSourceElements, forKey: .unionSourceElements)
     }
 }

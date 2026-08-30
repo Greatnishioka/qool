@@ -15,6 +15,9 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
     var pathPoints: [NormalizedPoint]
     var pathContours: [CanvasPathContour]
     var isClosedPath: Bool
+    /// 切り抜きの元画像。実体ではなく ID を持ちます（`ImageAssetRepositoryProtocol` が解決する）。
+    var imageAssetID: UUID?
+    var imageAdjustment: ImageAdjustment
     var unionSourceElements: [CanvasElementSnapshot]
 
     init(
@@ -31,6 +34,8 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         pathPoints: [NormalizedPoint] = [],
         pathContours: [CanvasPathContour] = [],
         isClosedPath: Bool = true,
+        imageAssetID: UUID? = nil,
+        imageAdjustment: ImageAdjustment = .default,
         unionSourceElements: [CanvasElementSnapshot] = []
     ) {
         self.id = id
@@ -46,6 +51,8 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         self.pathPoints = pathPoints
         self.pathContours = pathContours
         self.isClosedPath = isClosedPath
+        self.imageAssetID = imageAssetID
+        self.imageAdjustment = imageAdjustment
         self.unionSourceElements = unionSourceElements
     }
 }
