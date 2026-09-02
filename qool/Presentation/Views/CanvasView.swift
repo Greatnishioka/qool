@@ -1,0 +1,48 @@
+import SwiftUI
+
+struct CanvasView: View {
+    @StateObject private var viewModel: CanvasViewModel
+
+    /// ルートの ViewModel は保存の宛先としてしか使わないため、監視しません。
+    /// `@ObservedObject` にすると、一覧が更新されるたびにキャンバス全体が再評価されます。
+    init(memo: Memo, rootViewModel: AppRootViewModel) {
+        _viewModel = StateObject(
+            wrappedValue: CanvasViewModel(memo: memo) { updatedMemo in
+                Task { await rootViewModel.saveMemo(updatedMemo) }
+            }
+        )
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let usesSideProperties = proxy.size.width >= 820
+
+            ZStack(alignment: .bottom) {
+                HStack(spacing: 0) {
+                    CanvasSurface(viewModel: viewModel)
+                        .padding(.leading, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 96)
+                        .padding(.trailing, usesSideProperties ? 12 : 16)
+
+                    if usesSideProperties {
+                        CanvasPropertiesPanel(viewModel: viewModel)
+                            .frame(width: 280)
+                            .padding(.top, 16)
+                            .padding(.trailing, 16)
+                            .padding(.bottom, 96)
+                    }
+                }
+
+                CanvasToolDock(
+                    selectedTool: viewModel.selectedTool,
+                    onSelectTool: viewModel.selectTool
+                )
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+            }
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+        .navigationTitle(viewModel.memo.title)
+    }
+}

@@ -1,8 +1,13 @@
+import AppKit
 import SwiftUI
 
 /// メモパネル。メニューバーから開く、アプリの中心となる画面。
 struct MemoPanelView: View {
     @ObservedObject var viewModel: AppRootViewModel
+    @Environment(\.openWindow) private var openWindow
+
+    /// 削除は取り消せないので、確認を挟みます。
+    @State private var memoPendingDeletion: Memo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -17,8 +22,44 @@ struct MemoPanelView: View {
             Divider()
 
             content
+
+            Divider()
+
+            footer
         }
         .frame(width: 320, height: 420)
+        .confirmationDialog(
+            "「\(memoPendingDeletion?.title ?? "")」を削除しますか？",
+            isPresented: Binding(
+                get: { memoPendingDeletion != nil },
+                set: { if !$0 { memoPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("削除", role: .destructive) {
+                guard let memo = memoPendingDeletion else {
+                    return
+                }
+
+                memoPendingDeletion = nil
+                Task { await viewModel.deleteMemo(memo) }
+            }
+            Button("キャンセル", role: .cancel) {
+                memoPendingDeletion = nil
+            }
+        } message: {
+            Text("元に戻せません。")
+        }
+    }
+
+    /// S5 を別ウィンドウで開く。
+    ///
+    /// `LSUIElement` のアプリは前面に出ないため、**明示的に activate しないと
+    /// ウィンドウが他のアプリの後ろに開きます。**
+    private func openCanvas(for memo: Memo) {
+        viewModel.open(memo)
+        openWindow(value: memo.id)
+        NSApp.activate()
     }
 
     // MARK: - 状態表示
@@ -77,6 +118,18 @@ struct MemoPanelView: View {
             emptyState
         } else {
             List(viewModel.memos) { memo in
+                memoRow(memo)
+            }
+            .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    private func memoRow(_ memo: Memo) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                openCanvas(for: memo)
+            } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(memo.title)
                         .font(.system(size: 13, weight: .medium))
@@ -84,10 +137,39 @@ struct MemoPanelView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .listStyle(.inset)
-            .scrollContentBackground(.hidden)
+            .buttonStyle(.plain)
+
+            Menu {
+                Button("削除", role: .destructive) {
+                    memoPendingDeletion = memo
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 22)
         }
+    }
+
+    private var footer: some View {
+        HStack {
+            Spacer()
+
+            Button("qool を終了") {
+                NSApp.terminate(nil)
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     private var emptyState: some View {

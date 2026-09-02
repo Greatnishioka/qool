@@ -20,6 +20,7 @@ final class AppRootViewModel: ObservableObject {
     private let loadMemosUseCase: LoadMemosUseCase
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
+    private let deleteMemoUseCase: DeleteMemoUseCase
     private let flushMemosUseCase: FlushMemosUseCase
     private let observeWriteStatesUseCase: ObserveWriteStatesUseCase
     private let elementFactory: CanvasElementFactory
@@ -29,6 +30,7 @@ final class AppRootViewModel: ObservableObject {
         loadMemosUseCase: LoadMemosUseCase,
         createMemoUseCase: CreateMemoUseCase,
         saveMemoUseCase: SaveMemoUseCase,
+        deleteMemoUseCase: DeleteMemoUseCase,
         flushMemosUseCase: FlushMemosUseCase,
         observeWriteStatesUseCase: ObserveWriteStatesUseCase,
         elementFactory: CanvasElementFactory
@@ -36,6 +38,7 @@ final class AppRootViewModel: ObservableObject {
         self.loadMemosUseCase = loadMemosUseCase
         self.createMemoUseCase = createMemoUseCase
         self.saveMemoUseCase = saveMemoUseCase
+        self.deleteMemoUseCase = deleteMemoUseCase
         self.flushMemosUseCase = flushMemosUseCase
         self.observeWriteStatesUseCase = observeWriteStatesUseCase
         self.elementFactory = elementFactory
@@ -85,6 +88,7 @@ final class AppRootViewModel: ObservableObject {
             loadMemosUseCase: LoadMemosUseCase(repository: repository),
             createMemoUseCase: CreateMemoUseCase(repository: repository),
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
+            deleteMemoUseCase: DeleteMemoUseCase(repository: repository),
             flushMemosUseCase: FlushMemosUseCase(repository: repository),
             observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
             elementFactory: CanvasElementFactory()
@@ -118,6 +122,20 @@ final class AppRootViewModel: ObservableObject {
 
     func open(_ memo: Memo) {
         selectedMemo = memo
+    }
+
+    /// 削除は取り消せません。確認は呼び出し側（画面）の責務です。
+    func deleteMemo(_ memo: Memo) async {
+        do {
+            try await deleteMemoUseCase(memo.id)
+            memos.removeAll { $0.id == memo.id }
+
+            if selectedMemo?.id == memo.id {
+                selectedMemo = nil
+            }
+        } catch {
+            // 消せなかったので一覧はそのまま。状態表示が失敗を伝えます。
+        }
     }
 
     func addElement(using tool: CanvasTool) async {
