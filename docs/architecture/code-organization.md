@@ -323,7 +323,7 @@ qool/
   App/
     QoolApp.swift            AppDelegate.swift
   Presentation/
-    Enums/        MemoPersistenceStatus.swift
+    Enums/        MemoPersistenceStatus.swift        CanvasDragTarget.swift
     ViewModels/   AppRootViewModel.swift          CanvasViewModel.swift
     Views/        MemoPanelView.swift
     Support/      CanvasColor+SwiftUI.swift       RGBAComponents+SwiftUI.swift

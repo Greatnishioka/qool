@@ -226,7 +226,7 @@ private struct ColorSwatchPicker: View {
                 .padding(.vertical, 8)
                 .background {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(nsColor: .underPageBackgroundColor))
+                        .fill(Color(nsColor: .tertiarySystemFill))
                 }
             }
             .buttonStyle(.plain)

@@ -21,21 +21,17 @@ struct CanvasSurface: View {
     private var selectedUnionSourceID: CanvasElementSnapshot.ID? { viewModel.selectedUnionSourceID }
     private var selectedTool: CanvasTool { viewModel.selectedTool }
 
-    @State private var activeDragTranslation: CGSize = .zero
-    @State private var activeDragElementIDs: Set<CanvasElement.ID> = []
-    @State private var activeToggleElementID: CanvasElement.ID?
-    @State private var activeUnionSourceID: CanvasElementSnapshot.ID?
-    @State private var activeUnionSourceTranslation: CGSize = .zero
-    @State private var selectionDragStart: CGPoint?
-    @State private var selectionDragCurrent: CGPoint?
-    @State private var lastTapLocation: CGPoint?
-    @State private var lastTapDate: Date?
+    @State private var dragTarget: CanvasDragTarget = .none
+
+    /// ドラッグ中だけの表示上のずれ。**ジェスチャ終了時に自動で戻ります。**
+    @GestureState private var dragTranslation: CGSize = .zero
 
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 canvasBackground
                     .gesture(canvasGesture(in: proxy.size))
+                    .simultaneousGesture(doubleClickGesture)
 
                 elementLayer
                 unionSourceLayer
@@ -65,7 +61,7 @@ struct CanvasSurface: View {
                 element: element,
                 isSelected: selectedElementIDs.contains(element.id)
             )
-            .offset(activeDragElementIDs.contains(element.id) ? activeDragTranslation : .zero)
+            .offset(dragOffset(for: element.id))
             .allowsHitTesting(false)
         }
     }
@@ -77,15 +73,15 @@ struct CanvasSurface: View {
                 isSelected: selectedUnionSourceID == sourceElement.id
             )
             .opacity(selectedUnionSourceID == sourceElement.id ? 0.62 : 0.34)
-            .offset(activeUnionSourceID == sourceElement.id ? activeUnionSourceTranslation : .zero)
+            .offset(unionSourceOffset(for: sourceElement.id))
             .allowsHitTesting(false)
         }
     }
 
     @ViewBuilder
     private var marqueeLayer: some View {
-        if let selectionDragStart, let selectionDragCurrent {
-            SelectionMarquee(frame: normalizedFrame(from: selectionDragStart, to: selectionDragCurrent))
+        if case let .marquee(start, current) = dragTarget {
+            SelectionMarquee(frame: normalizedFrame(from: start, to: current))
                 .allowsHitTesting(false)
         }
     }
@@ -101,121 +97,146 @@ struct CanvasSurface: View {
 
     // MARK: - 入力
 
+    /// 結合要素の中身を編集に入る操作。
+    ///
+    /// 自前で時間と距離から判定していたものを標準ジェスチャに寄せました。
+    /// **システムのダブルクリック間隔設定に従うようになります**（以前は 0.35 秒固定）。
+    /// ドラッグと同時に認識させるのは、1 回目・2 回目のクリックが持つ
+    /// 選択の挙動をそのまま残すためです。
+    private var doubleClickGesture: some Gesture {
+        SpatialTapGesture(count: 2)
+            .onEnded { value in
+                viewModel.beginEditingUnionElement(at: value.location)
+            }
+    }
+
     private func canvasGesture(in canvasSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
+            .updating($dragTranslation) { value, translation, _ in
+                translation = value.translation
+            }
             .onChanged { handleDragChanged($0, in: canvasSize) }
             .onEnded { handleDragEnded($0, in: canvasSize) }
     }
 
     private func handleDragChanged(_ value: DragGesture.Value, in canvasSize: CGSize) {
-
-        if selectedTool == .select {
-            // 対象はドラッグ開始時に一度だけ決め、以降は変えません。
-            // 途中で決め直すと、指を動かしている最中に掴む要素が入れ替わります。
-            if activeDragElementIDs.isEmpty, activeToggleElementID == nil, activeUnionSourceID == nil, selectionDragStart == nil {
-                if let hitUnionSourceID = viewModel.unionSourceID(at: value.startLocation) {
-                    viewModel.selectUnionSource(id: hitUnionSourceID)
-                    activeUnionSourceID = hitUnionSourceID
-                } else if let hitElementID = viewModel.elementID(at: value.startLocation) {
-                    if isShiftSelectionActive {
-                        activeToggleElementID = hitElementID
-                    } else if selectedElementIDs.contains(hitElementID) {
-                        activeDragElementIDs = selectedElementIDs
-                    } else {
-                        viewModel.selectElement(id: hitElementID)
-                        activeDragElementIDs = [hitElementID]
-                    }
-                } else {
-                    selectionDragStart = value.startLocation
-                    selectionDragCurrent = value.location
-                }
+        guard selectedTool == .select else {
+            guard selectedTool != .path else {
+                return
             }
 
-            if activeDragElementIDs.isEmpty {
-                if activeToggleElementID != nil {
-                    return
-                } else if activeUnionSourceID == nil {
-                    selectionDragCurrent = value.location
-                } else {
-                    activeUnionSourceTranslation = value.translation
-                }
-            } else {
-                activeDragTranslation = value.translation
-            }
+            viewModel.updateDraft(from: value.startLocation, to: value.location, canvasSize: canvasSize)
             return
         }
 
-        if selectedTool == .path {
-            return
+        // 対象はドラッグ開始時に一度だけ決め、以降は変えません。
+        // 途中で決め直すと、動かしている最中に掴む要素が入れ替わります。
+        if case .none = dragTarget {
+            dragTarget = makeDragTarget(at: value.startLocation, current: value.location)
         }
 
-        viewModel.updateDraft(from: value.startLocation, to: value.location, canvasSize: canvasSize)
+        if case let .marquee(start, _) = dragTarget {
+            dragTarget = .marquee(start: start, current: value.location)
+        }
+    }
 
+    private func makeDragTarget(at startLocation: CGPoint, current: CGPoint) -> CanvasDragTarget {
+        if let hitUnionSourceID = viewModel.unionSourceID(at: startLocation) {
+            viewModel.selectUnionSource(id: hitUnionSourceID)
+            return .unionSource(hitUnionSourceID)
+        }
+
+        guard let hitElementID = viewModel.elementID(at: startLocation) else {
+            return .marquee(start: startLocation, current: current)
+        }
+
+        if isShiftSelectionActive {
+            return .toggling(hitElementID)
+        }
+
+        if selectedElementIDs.contains(hitElementID) {
+            return .elements(selectedElementIDs)
+        }
+
+        viewModel.selectElement(id: hitElementID)
+        return .elements([hitElementID])
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, in canvasSize: CGSize) {
-
-        if selectedTool == .select {
-            defer {
-                activeDragElementIDs.removeAll()
-                activeDragTranslation = .zero
-                activeToggleElementID = nil
-                activeUnionSourceID = nil
-                activeUnionSourceTranslation = .zero
-                selectionDragStart = nil
-                selectionDragCurrent = nil
-            }
-
-            if let activeToggleElementID {
-                if abs(value.translation.width) <= Threshold.tapSlop, abs(value.translation.height) <= Threshold.tapSlop {
-                    viewModel.toggleElementSelection(id: activeToggleElementID)
+        guard selectedTool == .select else {
+            guard selectedTool != .path else {
+                if isTap(value) {
+                    viewModel.placePathPoint(at: value.location, canvasSize: canvasSize)
                 }
                 return
             }
 
-            if let activeUnionSourceID {
-                viewModel.selectUnionSource(id: activeUnionSourceID)
-                if abs(value.translation.width) > Threshold.moveEpsilon || abs(value.translation.height) > Threshold.moveEpsilon {
-                    viewModel.moveUnionSource(id: activeUnionSourceID, by: value.translation, canvasSize: canvasSize)
+            viewModel.commitDraft(from: value.startLocation, to: value.location, canvasSize: canvasSize)
+            return
+        }
+
+        defer { dragTarget = .none }
+
+        switch dragTarget {
+        case let .toggling(elementID):
+            if isTap(value) {
+                viewModel.toggleElementSelection(id: elementID)
+            }
+
+        case let .unionSource(sourceID):
+            viewModel.selectUnionSource(id: sourceID)
+            if hasMoved(value) {
+                viewModel.moveUnionSource(id: sourceID, by: value.translation, canvasSize: canvasSize)
+            }
+
+        case let .elements(elementIDs):
+            if hasMoved(value) {
+                viewModel.moveSelectedElement(by: value.translation, canvasSize: canvasSize)
+            } else {
+                if elementIDs.count == 1, let elementID = elementIDs.first {
+                    viewModel.selectElement(id: elementID)
                 }
-                return
             }
 
-            if !activeDragElementIDs.isEmpty {
-                if abs(value.translation.width) > Threshold.moveEpsilon || abs(value.translation.height) > Threshold.moveEpsilon {
-                    viewModel.moveSelectedElement(by: value.translation, canvasSize: canvasSize)
-                } else {
-                    if activeDragElementIDs.count == 1, let activeDragElementID = activeDragElementIDs.first {
-                        viewModel.selectElement(id: activeDragElementID)
-                    }
-                    registerTap(at: value.startLocation)
-                }
-                return
-            }
-
-            guard let selectionDragStart else {
-                viewModel.clearSelection()
-                return
-            }
-
-            let selectionFrame = normalizedFrame(from: selectionDragStart, to: value.location)
-            if selectionFrame.width >= Threshold.marqueeMinimum || selectionFrame.height >= Threshold.marqueeMinimum {
+        case let .marquee(start, _):
+            let selectionFrame = normalizedFrame(from: start, to: value.location)
+            if selectionFrame.width >= Threshold.marqueeMinimum
+                || selectionFrame.height >= Threshold.marqueeMinimum {
                 viewModel.selectElements(in: selectionFrame)
             } else {
                 viewModel.clearSelection()
             }
-            return
+
+        case .none:
+            viewModel.clearSelection()
+        }
+    }
+
+    private func dragOffset(for elementID: CanvasElement.ID) -> CGSize {
+        guard case let .elements(elementIDs) = dragTarget, elementIDs.contains(elementID) else {
+            return .zero
         }
 
-        if selectedTool == .path {
-            if abs(value.translation.width) <= Threshold.tapSlop, abs(value.translation.height) <= Threshold.tapSlop {
-                viewModel.placePathPoint(at: value.location, canvasSize: canvasSize)
-            }
-            return
+        return dragTranslation
+    }
+
+    private func unionSourceOffset(for sourceID: CanvasElementSnapshot.ID) -> CGSize {
+        guard case let .unionSource(activeSourceID) = dragTarget, activeSourceID == sourceID else {
+            return .zero
         }
 
-        viewModel.commitDraft(from: value.startLocation, to: value.location, canvasSize: canvasSize)
+        return dragTranslation
+    }
 
+    /// 動いていないとみなす範囲。クリックとドラッグを分けます。
+    private func isTap(_ value: DragGesture.Value) -> Bool {
+        abs(value.translation.width) <= Threshold.tapSlop
+            && abs(value.translation.height) <= Threshold.tapSlop
+    }
+
+    private func hasMoved(_ value: DragGesture.Value) -> Bool {
+        abs(value.translation.width) > Threshold.moveEpsilon
+            || abs(value.translation.height) > Threshold.moveEpsilon
     }
 
     /// macOS では修飾キーの現在値をいつでも読めるため、状態を持ちません。
@@ -233,25 +254,6 @@ struct CanvasSurface: View {
         )
     }
 
-    private func registerTap(at location: CGPoint) {
-        let now = Date()
-        guard let lastTapLocation, let lastTapDate else {
-            self.lastTapLocation = location
-            self.lastTapDate = now
-            return
-        }
-
-        let elapsedTime = now.timeIntervalSince(lastTapDate)
-        let distance = hypot(location.x - lastTapLocation.x, location.y - lastTapLocation.y)
-        if elapsedTime <= 0.35, distance <= 24 {
-            viewModel.beginEditingUnionElement(at: location)
-            self.lastTapLocation = nil
-            self.lastTapDate = nil
-        } else {
-            self.lastTapLocation = location
-            self.lastTapDate = now
-        }
-    }
 }
 
 private struct SelectionMarquee: View {
