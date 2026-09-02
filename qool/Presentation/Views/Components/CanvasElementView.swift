@@ -17,7 +17,6 @@ struct CanvasElementView: View {
             }
             .rotationEffect(.degrees(element.rotationAngleDegrees))
             .position(x: element.frame.midX, y: element.frame.midY)
-            .contentShape(Rectangle())
             .allowsHitTesting(false)
     }
 

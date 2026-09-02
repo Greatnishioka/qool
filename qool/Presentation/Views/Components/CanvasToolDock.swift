@@ -1,10 +1,14 @@
 import SwiftUI
 
+/// キャンバス下部のツール選択。
+///
+/// Liquid Glass は `GlassEffectContainer` の中の兄弟同士が溶け合う設計なので、
+/// **ガラスを入れ子にしません。** 選択の移動は `matchedGeometryEffect` ではなく
+/// `glassEffectID` に任せ、ガラスが分離・結合する本来の動きに乗せます。
 struct CanvasToolDock: View {
-    let selectedTool: CanvasTool
-    let onSelectTool: (CanvasTool) -> Void
+    @ObservedObject var viewModel: CanvasViewModel
 
-    @Namespace private var selectionNamespace
+    @Namespace private var glassNamespace
 
     private let tools: [CanvasTool] = [.select, .rectangle, .path, .line, .text]
 
@@ -12,12 +16,10 @@ struct CanvasToolDock: View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 8) {
                 ForEach(tools) { tool in
-                    let isSelected = selectedTool == tool
+                    let isSelected = viewModel.selectedTool == tool
 
                     Button {
-                        withAnimation(.smooth(duration: 0.28, extraBounce: 0.18)) {
-                            onSelectTool(tool)
-                        }
+                        viewModel.selectTool(tool)
                     } label: {
                         Image(systemName: iconName(for: tool))
                             .font(.system(size: 20, weight: .semibold))
@@ -26,19 +28,16 @@ struct CanvasToolDock: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(isSelected ? Color.accentColor : Color.primary.opacity(0.78))
-                    .background {
-                        if isSelected {
-                            Capsule()
-                                .glassEffect(.regular.tint(Color.accentColor.opacity(0.18)).interactive(), in: Capsule())
-                                .matchedGeometryEffect(id: "selectedToolHighlight", in: selectionNamespace)
-                        }
-                    }
+                    .glassEffect(
+                        isSelected ? .regular.tint(Color.accentColor.opacity(0.18)).interactive() : .regular,
+                        in: .capsule
+                    )
+                    .glassEffectID(tool, in: glassNamespace)
                     .accessibilityLabel(tool.rawValue)
                 }
             }
         }
-        .padding(6)
-        .glassEffect(.regular.interactive(), in: Capsule())
+        .glassEffectTransition(.matchedGeometry)
     }
 
     private func iconName(for tool: CanvasTool) -> String {

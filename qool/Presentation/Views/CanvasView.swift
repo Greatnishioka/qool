@@ -34,10 +34,7 @@ struct CanvasView: View {
                     }
                 }
 
-                CanvasToolDock(
-                    selectedTool: viewModel.selectedTool,
-                    onSelectTool: viewModel.selectTool
-                )
+                CanvasToolDock(viewModel: viewModel)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
             }
