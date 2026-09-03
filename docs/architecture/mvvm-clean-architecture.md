@@ -21,7 +21,7 @@ View  →  ViewModel  →  UseCase  →  Domain
 qool/
   App/              QoolApp（@main） / AppDelegate（合成ルート）
   Presentation/
-    Enums/          MemoPersistenceStatus
+    Enums/          MemoPersistenceStatus / CanvasDragTarget
     Views/          メモパネル / キャンバス / 画像切り抜き / 画像調整（後者 3 つは未実装）
     ViewModels/     AppRootViewModel / CanvasViewModel
     Support/        CanvasColor+SwiftUI / RGBAComponents+SwiftUI

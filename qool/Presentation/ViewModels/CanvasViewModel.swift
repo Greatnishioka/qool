@@ -12,7 +12,6 @@ final class CanvasViewModel: ObservableObject {
     @Published var draftElement: CanvasElement?
 
     private var pathDraftPoints: [CGPoint] = []
-    private let elementFactory: CanvasElementFactory
     private let selectionService: CanvasSelectionService
     private let draftElementBuilder: CanvasDraftElementBuilder
     private let moveElementsUseCase: MoveCanvasElementsUseCase
@@ -23,7 +22,6 @@ final class CanvasViewModel: ObservableObject {
 
     init(
         memo: Memo,
-        elementFactory: CanvasElementFactory,
         selectionService: CanvasSelectionService = CanvasSelectionService(),
         draftElementBuilder: CanvasDraftElementBuilder = CanvasDraftElementBuilder(),
         moveElementsUseCase: MoveCanvasElementsUseCase = MoveCanvasElementsUseCase(),
@@ -33,7 +31,6 @@ final class CanvasViewModel: ObservableObject {
         onSave: @escaping (Memo) -> Void
     ) {
         self.memo = memo
-        self.elementFactory = elementFactory
         self.selectionService = selectionService
         self.draftElementBuilder = draftElementBuilder
         self.moveElementsUseCase = moveElementsUseCase
@@ -59,10 +56,6 @@ final class CanvasViewModel: ObservableObject {
         !selectedElementIDs.isEmpty
     }
 
-    var selectedElementsFrame: CGRect? {
-        selectionService.selectedElementsFrame(in: memo.canvas.elements, selectedIDs: selectedElementIDs)
-    }
-
     var selectedElements: [CanvasElement] {
         selectionService.selectedElements(in: memo.canvas.elements, selectedIDs: selectedElementIDs)
     }
@@ -86,10 +79,6 @@ final class CanvasViewModel: ObservableObject {
         }
 
         return editingUnionSources.first { $0.id == selectedUnionSourceID }
-    }
-
-    var canSeparateSelectedElement: Bool {
-        selectedElement?.unionSourceElements.isEmpty == false
     }
 
     func clearSelection() {
@@ -190,19 +179,6 @@ final class CanvasViewModel: ObservableObject {
     }
 
     
-    func addElement(using tool: CanvasTool, at point: CGPoint) {
-        guard let element = elementFactory.makeElement(for: tool, at: point) else {
-            return
-        }
-
-        memo.canvas.elements.append(element)
-        selectedTool = .select
-        editingUnionElementID = nil
-        selectedUnionSourceID = nil
-        selectedElementIDs = [element.id]
-        save()
-    }
-
     func moveSelectedElement(by translation: CGSize, canvasSize: CGSize) {
         guard !selectedElementIDs.isEmpty else {
             return
