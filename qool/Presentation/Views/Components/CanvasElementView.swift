@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// キャンバス上の要素 1 つ分の描画。
@@ -6,6 +7,8 @@ import SwiftUI
 struct CanvasElementView: View {
     let element: CanvasElement
     let isSelected: Bool
+    /// 切り抜きの元画像。取り込み前や読み込み失敗では `nil` で、その場合は枠だけ描きます。
+    let image: NSImage?
 
     var body: some View {
         elementBody
@@ -61,9 +64,16 @@ struct CanvasElementView: View {
                 .background(element.fillColor.swiftUIColor)
                 .overlay(strokeOverlay(Rectangle()))
         case .imageCutout:
-            CutoutShape()
-                .fill(element.fillColor.swiftUIColor.opacity(0.75))
-                .overlay(strokeOverlay(CutoutShape()))
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .clipShape(Rectangle())
+            } else {
+                CutoutShape()
+                    .fill(element.fillColor.swiftUIColor.opacity(0.75))
+                    .overlay(strokeOverlay(CutoutShape()))
+            }
         }
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import CoreGraphics
 import Foundation
@@ -18,10 +19,14 @@ final class CanvasViewModel: ObservableObject {
     private let deleteElementsUseCase: DeleteCanvasElementsUseCase
     private let updateElementUseCase: UpdateCanvasElementUseCase
     private let unionElementsUseCase: UnionCanvasElementsUseCase
+    private let imageStore: CanvasImageStore
+    private let importImageUseCase: ImportImageUseCase
     private let onSave: (Memo) -> Void
 
     init(
         memo: Memo,
+        imageStore: CanvasImageStore,
+        importImageUseCase: ImportImageUseCase,
         selectionService: CanvasSelectionService = CanvasSelectionService(),
         draftElementBuilder: CanvasDraftElementBuilder = CanvasDraftElementBuilder(),
         moveElementsUseCase: MoveCanvasElementsUseCase = MoveCanvasElementsUseCase(),
@@ -37,7 +42,76 @@ final class CanvasViewModel: ObservableObject {
         self.deleteElementsUseCase = deleteElementsUseCase
         self.updateElementUseCase = updateElementUseCase
         self.unionElementsUseCase = unionElementsUseCase
+        self.imageStore = imageStore
+        self.importImageUseCase = importImageUseCase
         self.onSave = onSave
+    }
+
+    /// 要素が参照している画像。まだ読めていなければ `nil`。
+    ///
+    /// `Memo` は値型で編集のたびにコピーされるため、画像の実体は
+    /// [CanvasImageStore](../Support/CanvasImageStore.swift) が別に持ちます。
+    func image(for element: CanvasElement) -> NSImage? {
+        guard let assetID = element.imageAssetID else {
+            return nil
+        }
+
+        return imageStore.image(for: assetID, in: memo.id)
+    }
+
+    /// ファイルから画像を取り込む。読めない形式なら `false`。
+    @discardableResult
+    func importImage(from url: URL, at point: CGPoint, canvasSize: CGSize) -> Bool {
+        guard let image = NSImage(contentsOf: url) else {
+            return false
+        }
+
+        return importImage(image, at: point, canvasSize: canvasSize)
+    }
+
+    @discardableResult
+    func importImage(_ image: NSImage, at point: CGPoint, canvasSize: CGSize) -> Bool {
+        guard let data = CanvasImageStore.pngData(from: image) else {
+            return false
+        }
+
+        do {
+            let assetID = try importImageUseCase(data, in: memo.id)
+            let element = CanvasElement(
+                kind: .imageCutout,
+                frame: imageFrame(for: image.size, at: point, canvasSize: canvasSize),
+                fillColor: .clear,
+                showsStroke: false,
+                imageAssetID: assetID
+            )
+
+            memo.canvas.elements.append(element)
+            selectedTool = .select
+            selectedElementIDs = [element.id]
+            save()
+
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// 長辺 320pt に収め、落とした位置を中心に置く。キャンバスからはみ出す分は寄せます。
+    private func imageFrame(for imageSize: CGSize, at point: CGPoint, canvasSize: CGSize) -> CGRect {
+        let maximumLength: CGFloat = 320
+        let scale = min(1, maximumLength / max(1, max(imageSize.width, imageSize.height)))
+        let size = CGSize(
+            width: max(1, imageSize.width * scale),
+            height: max(1, imageSize.height * scale)
+        )
+
+        return CGRect(
+            origin: CGPoint(
+                x: min(max(point.x - size.width / 2, 0), max(0, canvasSize.width - size.width)),
+                y: min(max(point.y - size.height / 2, 0), max(0, canvasSize.height - size.height))
+            ),
+            size: size
+        )
     }
 
     var selectedElement: CanvasElement? {
