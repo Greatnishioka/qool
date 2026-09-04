@@ -349,7 +349,9 @@ qool/
     Repositories/ MemoRepositoryProtocol.swift    MemoWriteMonitoringProtocol.swift
                   ImageAssetRepositoryProtocol.swift
     Services/     CanvasElementFactory.swift      CanvasSelectionService.swift
-                  CanvasDraftElementBuilder.swift
+                  CanvasDraftElementBuilder.swift ContourSmoother.swift
+                  ContourPadding.swift            RectangularGuideContour.swift
+    Support/      CGRect+UnitSpace.swift
   Infrastructure/
     Enums/        MemoWriteFailure.swift
     Persistence/  FileMemoRepositoryInfrastructure.swift
