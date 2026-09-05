@@ -91,8 +91,14 @@ final class CanvasViewModel: ObservableObject {
     }
 
     /// なぞりから作った候補。推奨 → スコア降順 → 手描き の順で並びます。**要素は変えません。**
-    func cutoutCandidates(tracePoints: [CGPoint]) -> [CutoutCandidate] {
-        buildCutoutCandidatesUseCase(tracePoints: tracePoints)
+    ///
+    /// 被写体マスクの抽出に Vision の推論が入るため非同期です。
+    func cutoutCandidates(image: NSImage, tracePoints: [CGPoint]) async -> [CutoutCandidate] {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return []
+        }
+
+        return await buildCutoutCandidatesUseCase(image: cgImage, tracePoints: tracePoints)
     }
 
     /// 切り抜きを解除し、元の矩形表示へ戻す。

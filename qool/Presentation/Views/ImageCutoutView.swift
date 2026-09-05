@@ -15,7 +15,7 @@ struct ImageCutoutView: View {
 
     let image: NSImage
     let existingContours: [CanvasPathContour]
-    let makeCandidates: ([CGPoint]) -> [CutoutCandidate]
+    let makeCandidates: (NSImage, [CGPoint]) async -> [CutoutCandidate]
     let onApply: ([CanvasPathContour]) -> Void
     let onClear: () -> Void
     let onDismiss: () -> Void
@@ -28,6 +28,8 @@ struct ImageCutoutView: View {
     /// 計算プロパティにすると `body` の評価ごとに走り、抽出器を足したときに
     /// 画像解析がメインスレッドで何度も動きます。
     @State private var candidates: [CutoutCandidate] = []
+    /// 抽出中。Vision の推論が入るため、待ち時間が見えるようにします。
+    @State private var isExtracting = false
 
     private var selectedCandidate: CutoutCandidate? {
         if let selectedCandidateID, let picked = candidates.first(where: { $0.id == selectedCandidateID }) {
@@ -83,6 +85,10 @@ struct ImageCutoutView: View {
                 : "現在の輪郭を表示しています。ドラッグでなぞり直せます"
         }
 
+        if isExtracting {
+            return "被写体を探しています…"
+        }
+
         return candidates.isEmpty
             ? "指を離すと候補を作ります"
             : "候補を選び直せます。やり直すには「なぞり直す」"
@@ -120,7 +126,7 @@ struct ImageCutoutView: View {
                     .onEnded { _ in
                         // なぞり終わりにまとめて抽出します。
                         selectedCandidateID = nil
-                        candidates = makeCandidates(tracePoints)
+                        extract()
                     }
             )
         }
@@ -215,6 +221,22 @@ struct ImageCutoutView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private func extract() {
+        let points = tracePoints
+        isExtracting = true
+
+        Task {
+            let extracted = await makeCandidates(image, points)
+            // なぞり直された後の結果は捨てます。
+            guard points == tracePoints else {
+                return
+            }
+
+            candidates = extracted
+            isExtracting = false
+        }
     }
 
     // MARK: - 座標

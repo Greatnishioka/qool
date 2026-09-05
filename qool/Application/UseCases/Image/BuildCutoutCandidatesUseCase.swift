@@ -8,35 +8,41 @@ import CoreGraphics
 /// 末尾には必ず「手描き」を足します。抽出器が何も出さなくても、
 /// なぞった線で切り抜ける状態を保つためです。
 nonisolated struct BuildCutoutCandidatesUseCase {
-    /// 抽出器の候補に課す面積比の下限。
-    private static let extractorMinimumAreaRatio: CGFloat = 0.18
+    /// 幾何ベースの抽出器（矩形補正・色矩形）に課す面積比の下限。
+    private static let guidedMinimumAreaRatio: CGFloat = 0.18
+    /// 検出ベースの抽出器（被写体マスクなど）に課す面積比の下限。
+    private static let detectionMinimumAreaRatio: CGFloat = 0.55
 
     private let rectangularGuideContour: RectangularGuideContour
+    private let subjectContourExtractor: any SubjectContourExtractorProtocol
     private let selector: ContourCandidateSelector
     private let smoother: ContourSmoother
     private let buildContour: BuildCutoutContourUseCase
 
     init(
         rectangularGuideContour: RectangularGuideContour = RectangularGuideContour(),
+        subjectContourExtractor: any SubjectContourExtractorProtocol = SubjectMaskExtractorInfrastructure(),
         selector: ContourCandidateSelector = ContourCandidateSelector(),
         smoother: ContourSmoother = ContourSmoother(),
         buildContour: BuildCutoutContourUseCase = BuildCutoutContourUseCase()
     ) {
         self.rectangularGuideContour = rectangularGuideContour
+        self.subjectContourExtractor = subjectContourExtractor
         self.selector = selector
         self.smoother = smoother
         self.buildContour = buildContour
     }
 
     /// - Parameter tracePoints: 画像の表示矩形を基準にした正規化座標（`0...1`）。
+    /// - Parameter image: 元画像。検出ベースの抽出器が使います。
     /// - Returns: 推奨 → スコア降順 → 抽出順 → 手描き、の順。なぞりが短ければ空。
-    func callAsFunction(tracePoints: [CGPoint]) -> [CutoutCandidate] {
+    func callAsFunction(image: CGImage, tracePoints: [CGPoint]) async -> [CutoutCandidate] {
         let handDrawnContours = buildContour(tracePoints: tracePoints)
         guard !handDrawnContours.isEmpty else {
             return []
         }
 
-        let extracted = extract(from: tracePoints)
+        let extracted = await extract(in: image, from: tracePoints)
         let scored = selector.scoredCandidates(from: extracted, guide: tracePoints)
         let scoreBySource = Dictionary(
             scored.map { ($0.candidate.source, $0.score) },
@@ -105,18 +111,31 @@ nonisolated struct BuildCutoutCandidatesUseCase {
         return first.index < second.index
     }
 
-    private func extract(from guide: [CGPoint]) -> [ContourCandidate] {
-        guard let rectangularContour = rectangularGuideContour.detectContour(from: guide) else {
-            return []
+    /// 抽出器を順に走らせる。**移植済みのものだけ**が並びます。
+    private func extract(in image: CGImage, from guide: [CGPoint]) async -> [ContourCandidate] {
+        var candidates: [ContourCandidate] = []
+
+        if let subjectContour = await subjectContourExtractor.extractContour(in: image, guidedBy: guide) {
+            candidates.append(
+                ContourCandidate(
+                    contour: subjectContour,
+                    source: .subjectMask,
+                    minimumAreaRatio: Self.detectionMinimumAreaRatio
+                )
+            )
         }
 
-        return [
-            ContourCandidate(
-                contour: rectangularContour,
-                source: .rectangularGuide,
-                minimumAreaRatio: Self.extractorMinimumAreaRatio
+        if let rectangularContour = rectangularGuideContour.detectContour(from: guide) {
+            candidates.append(
+                ContourCandidate(
+                    contour: rectangularContour,
+                    source: .rectangularGuide,
+                    minimumAreaRatio: Self.guidedMinimumAreaRatio
+                )
             )
-        ]
+        }
+
+        return candidates
     }
 
     /// 抽出器によっては、表示前に平滑化をかけます。

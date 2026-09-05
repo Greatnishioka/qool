@@ -8,8 +8,8 @@ import Testing
 @MainActor
 struct CanvasCutoutTests {
     private func withImportedImage(
-        _ body: (CanvasViewModel, CanvasElement) throws -> Void
-    ) throws {
+        _ body: (CanvasViewModel, CanvasElement, NSImage) async throws -> Void
+    ) async throws {
         let root = URL.temporaryDirectory.appending(
             path: "qool-tests-\(UUID().uuidString)",
             directoryHint: .isDirectory
@@ -32,7 +32,7 @@ struct CanvasCutoutTests {
         viewModel.importImage(image, at: CGPoint(x: 200, y: 200), canvasSize: CGSize(width: 600, height: 600))
         let element = try #require(viewModel.memo.canvas.elements.first)
 
-        try body(viewModel, element)
+        try await body(viewModel, element, image)
     }
 
     /// 正方形をなぞった想定の点列。
@@ -56,8 +56,8 @@ struct CanvasCutoutTests {
         return points
     }
 
-    @Test func なぞりから輪郭ができる() throws {
-        try withImportedImage { viewModel, element in
+    @Test func なぞりから輪郭ができる() async throws {
+        try await withImportedImage { viewModel, element, image in
             #expect(element.pathContours.isEmpty)
 
             let didApply = viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
@@ -71,8 +71,8 @@ struct CanvasCutoutTests {
     }
 
     /// 輪郭は画像の表示矩形を基準にした正規化座標です。
-    @Test func 輪郭は正規化座標に収まる() throws {
-        try withImportedImage { viewModel, element in
+    @Test func 輪郭は正規化座標に収まる() async throws {
+        try await withImportedImage { viewModel, element, image in
             viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
 
             let points = try #require(viewModel.memo.canvas.elements.first?.pathContours.first?.points)
@@ -82,8 +82,8 @@ struct CanvasCutoutTests {
     }
 
     /// 元画像は残ります。切り抜き後もなぞり直せることの前提です。
-    @Test func 切り抜いても元画像の参照は残る() throws {
-        try withImportedImage { viewModel, element in
+    @Test func 切り抜いても元画像の参照は残る() async throws {
+        try await withImportedImage { viewModel, element, image in
             viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
 
             let updated = try #require(viewModel.memo.canvas.elements.first)
@@ -92,8 +92,8 @@ struct CanvasCutoutTests {
         }
     }
 
-    @Test func 点が足りなければ何も変えない() throws {
-        try withImportedImage { viewModel, element in
+    @Test func 点が足りなければ何も変えない() async throws {
+        try await withImportedImage { viewModel, element, image in
             let didApply = viewModel.applyCutout(
                 tracePoints: [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.2, y: 0.2)],
                 to: element.id
@@ -104,14 +104,14 @@ struct CanvasCutoutTests {
         }
     }
 
-    @Test func 空のなぞりは何も変えない() throws {
-        try withImportedImage { viewModel, element in
+    @Test func 空のなぞりは何も変えない() async throws {
+        try await withImportedImage { viewModel, element, image in
             #expect(viewModel.applyCutout(tracePoints: [], to: element.id) == false)
         }
     }
 
-    @Test func 解除すると輪郭が消える() throws {
-        try withImportedImage { viewModel, element in
+    @Test func 解除すると輪郭が消える() async throws {
+        try await withImportedImage { viewModel, element, image in
             viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
             #expect(viewModel.memo.canvas.elements.first?.pathContours.isEmpty == false)
 
@@ -124,9 +124,9 @@ struct CanvasCutoutTests {
     }
 
     /// 候補を作るだけでは要素を変えません。
-    @Test func 候補の生成は要素を変えない() throws {
-        try withImportedImage { viewModel, element in
-            let candidates = viewModel.cutoutCandidates(tracePoints: squareTrace())
+    @Test func 候補の生成は要素を変えない() async throws {
+        try await withImportedImage { viewModel, element, image in
+            let candidates = await viewModel.cutoutCandidates(image: image, tracePoints: squareTrace())
 
             #expect(candidates.isEmpty == false)
             #expect(viewModel.memo.canvas.elements.first?.pathContours.isEmpty == true)
@@ -134,9 +134,9 @@ struct CanvasCutoutTests {
     }
 
     /// 候補から選んだ輪郭も反映できます。
-    @Test func 候補を選んで適用できる() throws {
-        try withImportedImage { viewModel, element in
-            let candidates = viewModel.cutoutCandidates(tracePoints: squareTrace())
+    @Test func 候補を選んで適用できる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            let candidates = await viewModel.cutoutCandidates(image: image, tracePoints: squareTrace())
             let recommended = try #require(candidates.first { $0.isRecommended })
 
             let didApply = viewModel.applyCutout(contours: recommended.contours, to: element.id)
@@ -147,8 +147,8 @@ struct CanvasCutoutTests {
     }
 
     /// なぞりの角は残ります（`ContourSmoother` のアンカー保護）。
-    @Test func 四角くなぞると角が残る() throws {
-        try withImportedImage { viewModel, element in
+    @Test func 四角くなぞると角が残る() async throws {
+        try await withImportedImage { viewModel, element, image in
             viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
 
             let points = try #require(viewModel.memo.canvas.elements.first?.pathContours.first?.points)
