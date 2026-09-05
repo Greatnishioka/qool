@@ -14,6 +14,9 @@ struct CanvasSurface: View {
 
     @ObservedObject var viewModel: CanvasViewModel
 
+    /// キャンバスの実寸。ツールバーからの取り込みで中央を求めるため、親へ返します。
+    @Binding var canvasSize: CGSize
+
     private var elements: [CanvasElement] { viewModel.memo.canvas.elements }
     private var draftElement: CanvasElement? { viewModel.draftElement }
     private var selectedElementIDs: Set<CanvasElement.ID> { viewModel.selectedElementIDs }
@@ -32,6 +35,13 @@ struct CanvasSurface: View {
                 canvasBackground
                     .gesture(canvasGesture(in: proxy.size))
                     .simultaneousGesture(doubleClickGesture)
+                    .dropDestination(for: URL.self) { urls, location in
+                        guard let url = urls.first else {
+                            return false
+                        }
+
+                        return viewModel.importImage(from: url, at: location, canvasSize: proxy.size)
+                    }
 
                 elementLayer
                 unionSourceLayer
@@ -39,6 +49,7 @@ struct CanvasSurface: View {
                 draftLayer
             }
             .clipShape(Rectangle())
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { canvasSize = $0 }
         }
     }
 
@@ -59,7 +70,8 @@ struct CanvasSurface: View {
         ForEach(elements) { element in
             CanvasElementView(
                 element: element,
-                isSelected: selectedElementIDs.contains(element.id)
+                isSelected: selectedElementIDs.contains(element.id),
+                image: viewModel.image(for: element)
             )
             .offset(dragOffset(for: element.id))
             .allowsHitTesting(false)
@@ -70,7 +82,8 @@ struct CanvasSurface: View {
         ForEach(unionSourceElements) { sourceElement in
             CanvasElementView(
                 element: sourceElement.element,
-                isSelected: selectedUnionSourceID == sourceElement.id
+                isSelected: selectedUnionSourceID == sourceElement.id,
+                image: viewModel.image(for: sourceElement.element)
             )
             .opacity(selectedUnionSourceID == sourceElement.id ? 0.62 : 0.34)
             .offset(unionSourceOffset(for: sourceElement.id))
@@ -89,7 +102,7 @@ struct CanvasSurface: View {
     @ViewBuilder
     private var draftLayer: some View {
         if let draftElement {
-            CanvasElementView(element: draftElement, isSelected: true)
+            CanvasElementView(element: draftElement, isSelected: true, image: nil)
                 .opacity(0.72)
                 .allowsHitTesting(false)
         }

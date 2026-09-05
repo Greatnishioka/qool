@@ -21,6 +21,10 @@ final class AppRootViewModel: ObservableObject {
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
     private let deleteMemoUseCase: DeleteMemoUseCase
+
+    /// キャンバスへ引き渡すもの。画像は `Memo` に含めないため、別経路で解決します。
+    let imageStore: CanvasImageStore
+    let importImageUseCase: ImportImageUseCase
     private let flushMemosUseCase: FlushMemosUseCase
     private let observeWriteStatesUseCase: ObserveWriteStatesUseCase
     private let elementFactory: CanvasElementFactory
@@ -33,12 +37,16 @@ final class AppRootViewModel: ObservableObject {
         deleteMemoUseCase: DeleteMemoUseCase,
         flushMemosUseCase: FlushMemosUseCase,
         observeWriteStatesUseCase: ObserveWriteStatesUseCase,
+        imageStore: CanvasImageStore,
+        importImageUseCase: ImportImageUseCase,
         elementFactory: CanvasElementFactory
     ) {
         self.loadMemosUseCase = loadMemosUseCase
         self.createMemoUseCase = createMemoUseCase
         self.saveMemoUseCase = saveMemoUseCase
         self.deleteMemoUseCase = deleteMemoUseCase
+        self.imageStore = imageStore
+        self.importImageUseCase = importImageUseCase
         self.flushMemosUseCase = flushMemosUseCase
         self.observeWriteStatesUseCase = observeWriteStatesUseCase
         self.elementFactory = elementFactory
@@ -82,7 +90,8 @@ final class AppRootViewModel: ObservableObject {
 
     static func bootstrap(
         repository: any MemoRepositoryProtocol,
-        monitor: (any MemoWriteMonitoringProtocol)? = nil
+        monitor: (any MemoWriteMonitoringProtocol)? = nil,
+        imageRepository: any ImageAssetRepositoryProtocol = FileImageAssetRepositoryInfrastructure()
     ) -> AppRootViewModel {
         AppRootViewModel(
             loadMemosUseCase: LoadMemosUseCase(repository: repository),
@@ -91,6 +100,8 @@ final class AppRootViewModel: ObservableObject {
             deleteMemoUseCase: DeleteMemoUseCase(repository: repository),
             flushMemosUseCase: FlushMemosUseCase(repository: repository),
             observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
+            imageStore: CanvasImageStore(repository: imageRepository),
+            importImageUseCase: ImportImageUseCase(repository: imageRepository),
             elementFactory: CanvasElementFactory()
         )
     }
