@@ -123,13 +123,26 @@ struct CanvasCutoutTests {
         }
     }
 
-    /// 適用前に見た目を確かめるためのもので、要素は変えません。
-    @Test func プレビューは要素を変えない() throws {
+    /// 候補を作るだけでは要素を変えません。
+    @Test func 候補の生成は要素を変えない() throws {
         try withImportedImage { viewModel, element in
-            let contours = viewModel.cutoutPreview(tracePoints: squareTrace())
+            let candidates = viewModel.cutoutCandidates(tracePoints: squareTrace())
 
-            #expect(contours.count == 1)
+            #expect(candidates.isEmpty == false)
             #expect(viewModel.memo.canvas.elements.first?.pathContours.isEmpty == true)
+        }
+    }
+
+    /// 候補から選んだ輪郭も反映できます。
+    @Test func 候補を選んで適用できる() throws {
+        try withImportedImage { viewModel, element in
+            let candidates = viewModel.cutoutCandidates(tracePoints: squareTrace())
+            let recommended = try #require(candidates.first { $0.isRecommended })
+
+            let didApply = viewModel.applyCutout(contours: recommended.contours, to: element.id)
+
+            #expect(didApply)
+            #expect(viewModel.memo.canvas.elements.first?.pathContours.count == 1)
         }
     }
 

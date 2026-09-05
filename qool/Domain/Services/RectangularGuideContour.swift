@@ -14,6 +14,8 @@ nonisolated struct RectangularGuideContour {
     /// 各辺がどれだけの割合をなぞられていれば矩形とみなすか。
     static let minimumSideCoverage: CGFloat = 0.58
 
+    private let geometry = ContourGeometry()
+
     init() {}
 
     func detectContour(from guide: [CGPoint]) -> [CGPoint]? {
@@ -21,7 +23,7 @@ nonisolated struct RectangularGuideContour {
             return nil
         }
 
-        return rectangularContour(for: bounds(for: guide))
+        return rectangularContour(for: geometry.bounds(for: guide))
     }
 
     func isRectangleLikeContour(_ points: [CGPoint]) -> Bool {
@@ -34,7 +36,7 @@ nonisolated struct RectangularGuideContour {
             return false
         }
 
-        let bounds = bounds(for: points)
+        let bounds = geometry.bounds(for: points)
         guard bounds.width > 0.01, bounds.height > 0.01 else {
             return false
         }
@@ -90,13 +92,13 @@ nonisolated struct RectangularGuideContour {
             return false
         }
 
-        let guideBounds = bounds(for: guide)
+        let guideBounds = geometry.bounds(for: guide)
         guard guideBounds.width > 0.04, guideBounds.height > 0.04 else {
             return false
         }
 
         let boundsArea = guideBounds.width * guideBounds.height
-        let fillRatio = polygonArea(guide) / max(0.0001, boundsArea)
+        let fillRatio = geometry.polygonArea(guide) / max(0.0001, boundsArea)
         guard fillRatio >= Self.minimumFillRatio else {
             return false
         }
@@ -155,33 +157,4 @@ nonisolated struct RectangularGuideContour {
         return (maxValue - minValue) / span
     }
 
-    private func bounds(for points: [CGPoint]) -> CGRect {
-        let minX = points.map(\.x).min() ?? 0
-        let maxX = points.map(\.x).max() ?? 1
-        let minY = points.map(\.y).min() ?? 0
-        let maxY = points.map(\.y).max() ?? 1
-
-        return CGRect(
-            x: minX,
-            y: minY,
-            width: max(0.0001, maxX - minX),
-            height: max(0.0001, maxY - minY)
-        )
-    }
-
-    private func polygonArea(_ points: [CGPoint]) -> CGFloat {
-        guard points.count >= 3 else {
-            return 0
-        }
-
-        var area: CGFloat = 0
-
-        for index in points.indices {
-            let current = points[index]
-            let next = points[(index + 1) % points.count]
-            area += current.x * next.y - next.x * current.y
-        }
-
-        return abs(area / 2)
-    }
 }

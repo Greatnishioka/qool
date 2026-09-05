@@ -22,6 +22,7 @@ final class CanvasViewModel: ObservableObject {
     private let imageStore: CanvasImageStore
     private let importImageUseCase: ImportImageUseCase
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
+    private let buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase
     private let onSave: (Memo) -> Void
 
     init(
@@ -29,6 +30,7 @@ final class CanvasViewModel: ObservableObject {
         imageStore: CanvasImageStore,
         importImageUseCase: ImportImageUseCase,
         buildCutoutContourUseCase: BuildCutoutContourUseCase = BuildCutoutContourUseCase(),
+        buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase = BuildCutoutCandidatesUseCase(),
         selectionService: CanvasSelectionService = CanvasSelectionService(),
         draftElementBuilder: CanvasDraftElementBuilder = CanvasDraftElementBuilder(),
         moveElementsUseCase: MoveCanvasElementsUseCase = MoveCanvasElementsUseCase(),
@@ -47,6 +49,7 @@ final class CanvasViewModel: ObservableObject {
         self.imageStore = imageStore
         self.importImageUseCase = importImageUseCase
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
+        self.buildCutoutCandidatesUseCase = buildCutoutCandidatesUseCase
         self.onSave = onSave
     }
 
@@ -68,7 +71,12 @@ final class CanvasViewModel: ObservableObject {
     /// 元画像と輪郭の両方を残すので、あとからなぞり直せます。
     @discardableResult
     func applyCutout(tracePoints: [CGPoint], to elementID: CanvasElement.ID) -> Bool {
-        let contours = buildCutoutContourUseCase(tracePoints: tracePoints)
+        applyCutout(contours: buildCutoutContourUseCase(tracePoints: tracePoints), to: elementID)
+    }
+
+    /// 候補から選んだ輪郭を要素へ反映する。
+    @discardableResult
+    func applyCutout(contours: [CanvasPathContour], to elementID: CanvasElement.ID) -> Bool {
         guard !contours.isEmpty else {
             return false
         }
@@ -82,9 +90,9 @@ final class CanvasViewModel: ObservableObject {
         return true
     }
 
-    /// 適用前に見た目を確かめるための輪郭。**要素は変えません。**
-    func cutoutPreview(tracePoints: [CGPoint]) -> [CanvasPathContour] {
-        buildCutoutContourUseCase(tracePoints: tracePoints)
+    /// なぞりから作った候補。推奨 → スコア降順 → 手描き の順で並びます。**要素は変えません。**
+    func cutoutCandidates(tracePoints: [CGPoint]) -> [CutoutCandidate] {
+        buildCutoutCandidatesUseCase(tracePoints: tracePoints)
     }
 
     /// 切り抜きを解除し、元の矩形表示へ戻す。
