@@ -4,8 +4,19 @@ import UniformTypeIdentifiers
 struct CanvasView: View {
     @StateObject private var viewModel: CanvasViewModel
     @State private var isImportingImage = false
+    /// 切り抜きシートの対象。開いた時点の要素を持ちます。
+    @State private var cutoutTarget: CanvasElement?
     /// 直近のキャンバスの大きさ。ツールバーからの取り込みは中央に置くため、これが要ります。
     @State private var canvasSize: CGSize = .zero
+
+    /// 画像を持つ要素が 1 つだけ選ばれているときにだけ切り抜けます。
+    private var canCutOutSelection: Bool {
+        guard let element = viewModel.selectedElement else {
+            return false
+        }
+
+        return element.kind == .imageCutout && viewModel.image(for: element) != nil
+    }
 
     private var importDropCenter: CGPoint {
         CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
@@ -60,6 +71,27 @@ struct CanvasView: View {
                 } label: {
                     Label("画像を追加", systemImage: "photo.badge.plus")
                 }
+            }
+
+            ToolbarItem {
+                Button {
+                    cutoutTarget = viewModel.selectedElement
+                } label: {
+                    Label("切り抜く", systemImage: "scissors")
+                }
+                .disabled(!canCutOutSelection)
+            }
+        }
+        .sheet(item: $cutoutTarget) { element in
+            if let image = viewModel.image(for: element) {
+                ImageCutoutView(
+                    image: image,
+                    existingContours: element.pathContours,
+                    makeContours: viewModel.cutoutPreview,
+                    onApply: { viewModel.applyCutout(tracePoints: $0, to: element.id) },
+                    onClear: { viewModel.clearCutout(of: element.id) },
+                    onDismiss: { cutoutTarget = nil }
+                )
             }
         }
         .fileImporter(
