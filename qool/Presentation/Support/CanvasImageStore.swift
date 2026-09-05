@@ -32,6 +32,11 @@ final class CanvasImageStore {
         return image
     }
 
+    /// 切り詰めた画像を保存できる形（PNG）へ変換する。
+    static func pngData(from image: CGImage) -> Data? {
+        NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+    }
+
     /// `NSImage` を保存できる形（PNG）へ変換する。変換できなければ `nil`。
     static func pngData(from image: NSImage) -> Data? {
         guard let tiffData = image.tiffRepresentation,

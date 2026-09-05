@@ -21,6 +21,7 @@ struct CanvasCutoutTests {
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
+            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: repository),
             onSave: { _ in }
         )
 
@@ -82,14 +83,54 @@ struct CanvasCutoutTests {
     }
 
     /// 元画像は残ります。切り抜き後もなぞり直せることの前提です。
-    @Test func 切り抜いても元画像の参照は残る() async throws {
+    /// 保存されるのは切り抜き結果ではなく元画像です。あとからなぞり直せる必要があります。
+    /// **画像の ID は見ません。** 切り詰めが走ると差し替わるためです（下の専用のテストで見ます）。
+    @Test func 切り抜いても元画像は引ける() async throws {
         try await withImportedImage { viewModel, element, image in
             viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
 
             let updated = try #require(viewModel.memo.canvas.elements.first)
-            #expect(updated.imageAssetID == element.imageAssetID)
+            #expect(updated.imageAssetID != nil)
             #expect(viewModel.image(for: updated) != nil)
         }
+    }
+
+    /// 元画像を輪郭のまわりまで切り詰め、原寸のほうを片付けることの確認。
+    @Test func 切り抜くと元画像が切り詰められ原寸は消える() async throws {
+        let root = URL.temporaryDirectory.appending(
+            path: "qool-tests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let repository = FileImageAssetRepositoryInfrastructure(rootDirectory: root)
+        let viewModel = CanvasViewModel(
+            memo: Memo(title: "テスト"),
+            imageStore: CanvasImageStore(repository: repository),
+            importImageUseCase: ImportImageUseCase(repository: repository),
+            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: repository),
+            onSave: { _ in }
+        )
+
+        // 余白 48px を引いても十分小さくなるよう、大きめの画像を使います。
+        // 小さい画像だと余白のほうが勝ち、切り詰める意味がなくなります。
+        let image = NSImage(size: CGSize(width: 800, height: 800))
+        image.lockFocus()
+        NSColor.systemTeal.drawSwatch(in: CGRect(x: 0, y: 0, width: 800, height: 800))
+        image.unlockFocus()
+
+        viewModel.importImage(image, at: CGPoint(x: 400, y: 400), canvasSize: CGSize(width: 900, height: 900))
+        let element = try #require(viewModel.memo.canvas.elements.first)
+        let originalAssetID = try #require(element.imageAssetID)
+
+        viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
+
+        let updated = try #require(viewModel.memo.canvas.elements.first)
+        #expect(updated.imageAssetID != originalAssetID)
+        #expect(viewModel.image(for: updated) != nil)
+        #expect(updated.frame.width < element.frame.width)
+        // 原寸のファイルは掃除されます。
+        #expect(repository.data(for: originalAssetID, in: viewModel.memo.id) == nil)
     }
 
     @Test func 点が足りなければ何も変えない() async throws {
@@ -151,15 +192,28 @@ struct CanvasCutoutTests {
         try await withImportedImage { viewModel, element, image in
             viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
 
-            let points = try #require(viewModel.memo.canvas.elements.first?.pathContours.first?.points)
-            let corners = [
-                CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.8, y: 0.2),
-                CGPoint(x: 0.8, y: 0.8), CGPoint(x: 0.2, y: 0.8)
-            ]
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+            let points = try #require(updated.pathContours.first?.points)
+
+            // **キャンバス上の絶対位置で比べます。** 切り詰めが走ると枠と正規化の基準が変わるため、
+            // 正規化座標のまま比べると、形が同じでも数値がずれます。
+            let absolutePoints = points.map { point in
+                CGPoint(
+                    x: updated.frame.minX + point.x * updated.frame.width,
+                    y: updated.frame.minY + point.y * updated.frame.height
+                )
+            }
+            let corners = [(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8)].map { corner in
+                CGPoint(
+                    x: element.frame.minX + corner.0 * element.frame.width,
+                    y: element.frame.minY + corner.1 * element.frame.height
+                )
+            }
+            let tolerance = element.frame.width * 0.05
 
             for corner in corners {
-                let distance = points.map { hypot($0.x - corner.x, $0.y - corner.y) }.min() ?? 1
-                #expect(distance < 0.05, "角 \(corner) が \(distance) まで丸まった")
+                let distance = absolutePoints.map { hypot($0.x - corner.x, $0.y - corner.y) }.min() ?? .infinity
+                #expect(distance < tolerance, "角 \(corner) が \(distance) まで丸まった")
             }
         }
     }

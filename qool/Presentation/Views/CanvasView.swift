@@ -29,7 +29,8 @@ struct CanvasView: View {
             wrappedValue: CanvasViewModel(
                 memo: memo,
                 imageStore: rootViewModel.imageStore,
-                importImageUseCase: rootViewModel.importImageUseCase
+                importImageUseCase: rootViewModel.importImageUseCase,
+                pruneImageAssetsUseCase: rootViewModel.pruneImageAssetsUseCase
             ) { updatedMemo in
                 Task { await rootViewModel.saveMemo(updatedMemo) }
             }

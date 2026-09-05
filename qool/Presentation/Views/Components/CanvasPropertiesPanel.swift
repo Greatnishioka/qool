@@ -106,6 +106,10 @@ struct CanvasPropertiesPanel: View {
             }
         }
 
+        if element.kind == .imageCutout {
+            imageAdjustmentContent(for: element)
+        }
+
         VStack(alignment: .leading, spacing: 10) {
             Text("塗り")
                 .font(.subheadline.weight(.semibold))
@@ -163,6 +167,103 @@ struct CanvasPropertiesPanel: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+    }
+
+    /// 切り抜き画像の見え方（S7）。
+    ///
+    /// **輪郭ではなく見た目だけを変えます。** 余白とぼかしはマスクを膨らませる方向に効き、
+    /// 保存されている輪郭そのものは動きません。やり直しは切り抜き画面の側です。
+    @ViewBuilder
+    private func imageAdjustmentContent(for element: CanvasElement) -> some View {
+        let adjustment = element.imageAdjustment
+
+        VStack(alignment: .leading, spacing: 10) {
+            Text("画像の調整")
+                .font(.subheadline.weight(.semibold))
+
+            adjustmentSlider(
+                title: "不透明度",
+                value: Binding(
+                    get: { adjustment.opacity },
+                    set: { viewModel.updateImageAdjustment(adjustment.updated(opacity: $0)) }
+                ),
+                range: ImageAdjustment.opacityRange,
+                format: { "\(Int($0 * 100))%" }
+            )
+
+            adjustmentSlider(
+                title: "明るさ",
+                value: Binding(
+                    get: { adjustment.brightness },
+                    set: { viewModel.updateImageAdjustment(adjustment.updated(brightness: $0)) }
+                ),
+                range: ImageAdjustment.brightnessRange,
+                format: { String(format: "%+.2f", $0) }
+            )
+
+            adjustmentSlider(
+                title: "余白",
+                value: Binding(
+                    get: { adjustment.padding },
+                    set: { viewModel.updateImageAdjustment(adjustment.updated(padding: $0)) }
+                ),
+                range: ImageAdjustment.paddingRange,
+                format: { "\(Int($0))" }
+            )
+
+            adjustmentSlider(
+                title: "ぼかし",
+                value: Binding(
+                    get: { adjustment.blur },
+                    set: { viewModel.updateImageAdjustment(adjustment.updated(blur: $0)) }
+                ),
+                range: ImageAdjustment.blurRange,
+                format: { "\(Int($0))" }
+            )
+
+            if adjustment.blur > 0 {
+                Picker(
+                    "ぼかす方向",
+                    selection: Binding(
+                        get: { adjustment.blurDirection },
+                        set: { viewModel.updateImageAdjustment(adjustment.updated(blurDirection: $0)) }
+                    )
+                ) {
+                    ForEach(ImageBlurDirection.allCases) { direction in
+                        Text(direction.displayName).tag(direction)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Button("初期状態に戻す") {
+                viewModel.updateImageAdjustment(.default)
+            }
+            .buttonStyle(.bordered)
+            .disabled(adjustment == .default)
+        }
+    }
+
+    /// `Binding` は呼び出し側で組みます。**閉包を引数で受け渡すと `@Sendable` を要求され、
+    /// `viewModel` を捕まえられません。**
+    private func adjustmentSlider(
+        title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        format: (Double) -> String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.caption)
+                Spacer()
+                Text(format(value.wrappedValue))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Slider(value: value, in: range)
+        }
     }
 
     @ViewBuilder

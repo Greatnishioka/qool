@@ -21,6 +21,8 @@ final class CanvasViewModel: ObservableObject {
     private let unionElementsUseCase: UnionCanvasElementsUseCase
     private let imageStore: CanvasImageStore
     private let importImageUseCase: ImportImageUseCase
+    private let pruneImageAssetsUseCase: PruneImageAssetsUseCase
+    private let cropGeometry = CutoutCropGeometry()
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
     private let buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase
     private let onSave: (Memo) -> Void
@@ -29,6 +31,7 @@ final class CanvasViewModel: ObservableObject {
         memo: Memo,
         imageStore: CanvasImageStore,
         importImageUseCase: ImportImageUseCase,
+        pruneImageAssetsUseCase: PruneImageAssetsUseCase,
         buildCutoutContourUseCase: BuildCutoutContourUseCase = BuildCutoutContourUseCase(),
         buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase = BuildCutoutCandidatesUseCase(),
         selectionService: CanvasSelectionService = CanvasSelectionService(),
@@ -48,6 +51,7 @@ final class CanvasViewModel: ObservableObject {
         self.unionElementsUseCase = unionElementsUseCase
         self.imageStore = imageStore
         self.importImageUseCase = importImageUseCase
+        self.pruneImageAssetsUseCase = pruneImageAssetsUseCase
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
         self.buildCutoutCandidatesUseCase = buildCutoutCandidatesUseCase
         self.onSave = onSave
@@ -85,9 +89,43 @@ final class CanvasViewModel: ObservableObject {
             element.pathContours = contours
             element.isClosedPath = true
         }
+        cropSourceImage(of: elementID)
         save()
+        pruneUnusedAssets()
 
         return true
+    }
+
+    /// 輪郭が決まった元画像を、そのまわりだけ残して置き換える。
+    ///
+    /// **見た目は変わりません。** 画像が小さくなるぶん枠も縮め、輪郭を取り直します。
+    /// 置き換えられなくても静かに諦めます。原寸のままでも表示は正しいためです。
+    private func cropSourceImage(of elementID: CanvasElement.ID) {
+        guard let element = memo.canvas.elements.first(where: { $0.id == elementID }),
+              let sourceImage = image(for: element)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return
+        }
+
+        let pixelSize = CGSize(width: sourceImage.width, height: sourceImage.height)
+
+        guard let cropRect = cropGeometry.cropRect(for: element.pathContours, imagePixelSize: pixelSize),
+              let cropped = sourceImage.cropping(
+                  to: cropGeometry.pixelRect(for: cropRect, imagePixelSize: pixelSize)
+              ),
+              let data = CanvasImageStore.pngData(from: cropped),
+              let assetID = try? importImageUseCase(data, in: memo.id) else {
+            return
+        }
+
+        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element = cropGeometry.applied(cropRect, to: element, assetID: assetID)
+        }
+    }
+
+    /// **保存のたびには呼びません。** 孤児が生まれるのは画像を差し替えたときと
+    /// 要素を消したときだけで、毎回ディレクトリを読む必要がありません。
+    private func pruneUnusedAssets() {
+        try? pruneImageAssetsUseCase(for: memo)
     }
 
     /// なぞりから作った候補。推奨 → スコア降順 → 手描き の順で並びます。**要素は変えません。**
@@ -374,6 +412,16 @@ final class CanvasViewModel: ObservableObject {
         }
     }
 
+    func updateImageAdjustment(_ adjustment: ImageAdjustment) {
+        updateSelectedElement { element in
+            guard element.kind == .imageCutout else {
+                return
+            }
+
+            element.imageAdjustment = adjustment
+        }
+    }
+
     func updateCornerRadius(_ cornerRadius: CGFloat) {
         updateSelectedElement { element in
             guard element.kind == .rectangle else {
@@ -397,6 +445,7 @@ final class CanvasViewModel: ObservableObject {
         }
 
         deleteElementsUseCase(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
+        pruneUnusedAssets()
         selectedElementIDs.removeAll()
         editingUnionElementID = nil
         selectedUnionSourceID = nil
@@ -412,6 +461,8 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
+        // ここでは掃除しません。**結合要素を足す前に走ると、元要素の画像を消します。**
+        // 結合しても画像は `unionSourceElements` が参照し続けるので、孤児は生まれません。
         deleteElementsUseCase(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
         memo.canvas.elements.append(unionElement)
         selectedElementIDs = [unionElement.id]

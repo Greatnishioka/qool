@@ -73,7 +73,9 @@ struct CanvasElementView: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
-                    .clipShape(cutoutShape)
+                    .brightness(element.imageAdjustment.brightness)
+                    .opacity(element.imageAdjustment.opacity)
+                    .mask { cutoutMask(cutoutShape) }
                     .overlay(strokeOverlay(cutoutShape))
             } else {
                 CutoutShape()
@@ -81,6 +83,29 @@ struct CanvasElementView: View {
                     .overlay(strokeOverlay(CutoutShape()))
             }
         }
+    }
+
+    /// 切り抜きのマスク。余白とぼかしをここで足します。
+    ///
+    /// **輪郭の点を計算し直さず、太い線で膨らませています。**
+    /// `ContourPadding` で座標を作り直すと、`body` が走るたびに数百点の再計算が入り、
+    /// ドラッグ中の描画が持ちません。線幅による膨張は GPU 側で済みます。
+    private func cutoutMask<S: Shape>(_ shape: S) -> some View {
+        let adjustment = element.imageAdjustment
+        // 外側ぼかしは、ぼけた分だけ形を先に広げないと、元の輪郭より内側へ食い込みます。
+        let outset = adjustment.padding + (adjustment.blurDirection == .inward ? 0 : adjustment.blur)
+
+        return ZStack {
+            shape.fill(Color.white)
+
+            if outset > 0 {
+                shape.stroke(
+                    Color.white,
+                    style: StrokeStyle(lineWidth: outset * 2, lineCap: .round, lineJoin: .round)
+                )
+            }
+        }
+        .blur(radius: adjustment.blur)
     }
 
     @ViewBuilder
