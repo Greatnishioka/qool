@@ -11,7 +11,8 @@ struct QoolApp: App {
         MenuBarExtra {
             MemoPanelView(
                 viewModel: appDelegate.viewModel,
-                floatingMemos: appDelegate.floatingMemos
+                floatingMemos: appDelegate.floatingMemos,
+                hotKeys: appDelegate.hotKeys
             )
             .preferredColorScheme(.light)
         } label: {
@@ -19,11 +20,17 @@ struct QoolApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        // S5。パネル内で画面遷移せず、**別ウィンドウ**で開きます。
+        // パネル内で画面遷移せず、**別ウィンドウ**で開きます。
         WindowGroup(for: Memo.ID.self) { $memoID in
             CanvasWindowView(memoID: memoID, rootViewModel: appDelegate.viewModel)
                 .preferredColorScheme(.light)
         }
         .defaultSize(width: 1000, height: 700)
+
+        Window("ホットキーの設定", id: HotKeySettingsView.windowID) {
+            HotKeySettingsView(hotKeys: appDelegate.hotKeys)
+                .preferredColorScheme(.light)
+        }
+        .windowResizability(.contentSize)
     }
 }

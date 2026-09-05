@@ -196,12 +196,12 @@ StarWindow は macOS のデスクトップ性能を前提に、重い処理を�
 
 7. ~~**任意形状のフローティングメモ**~~ **完了。**
    `FloatingMemoWindowManager` / `FloatingMemoWindow` / `ContourHostingView` として移植（[4.8](#48-mvp-のコアとして移植するもの)）
-8. **グローバルホットキーでの呼び出し**
-   StarWindow にも qool にも存在しない、**新規に設計が必要な唯一の MVP 要素**。
-   要件（ユーザーがキーを設定できること / 設定 UI を自作できること）と実装方式の候補は
-   [キーバインド設計](../product/hotkeys.md)を参照
+8. ~~**グローバルホットキーでの呼び出し**~~ **完了。**
+   `⇧⌃Q` をプレフィックスとする 2 ストローク方式。Carbon を自前で包み、
+   [`GlobalHotKeyProtocol`](../../qool/Domain/Repositories/GlobalHotKeyProtocol.swift) で隔離した
+   （[決定事項](../product/hotkeys.md#決定-自前で書き腐敗防止層で隔離する)）
 
-ここまでで MVP 到達。
+**ここまでで MVP 到達。**
 
 ### 第 4 段階: 品質を上げる（MVP 後）
 

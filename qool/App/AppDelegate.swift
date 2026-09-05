@@ -11,6 +11,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// デスクトップに貼ったメモ。**遅延生成なのは `viewModel` に依存するためです。**
     private(set) lazy var floatingMemos = FloatingMemoPresenter(viewModel: viewModel)
 
+    private(set) lazy var hotKeys = HotKeyCoordinator(
+        viewModel: viewModel,
+        floatingMemos: floatingMemos,
+        settings: UserDefaultsAppSettingsInfrastructure(),
+        globalHotKey: CarbonGlobalHotKeyInfrastructure()
+    )
+
     /// 終了要求の多重実行を防ぐ。`reply` は必ず 1 回だけ呼ぶ必要があります。
     private var isTerminating = false
 
@@ -18,9 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// **これがないと `.terminateLater` のまま永久に終了できなくなります。**
     private static let flushTimeout = Duration.seconds(5)
 
-    /// 前回貼ってあったメモを貼り直します。
+    /// 前回貼ってあったメモを貼り直し、ホットキーを登録します。
     func applicationDidFinishLaunching(_ notification: Notification) {
         floatingMemos.start()
+        hotKeys.start()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
