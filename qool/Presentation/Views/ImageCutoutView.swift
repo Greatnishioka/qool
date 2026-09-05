@@ -15,15 +15,30 @@ struct ImageCutoutView: View {
 
     let image: NSImage
     let existingContours: [CanvasPathContour]
-    let makeContours: ([CGPoint]) -> [CanvasPathContour]
-    let onApply: ([CGPoint]) -> Void
+    let makeCandidates: ([CGPoint]) -> [CutoutCandidate]
+    let onApply: ([CanvasPathContour]) -> Void
     let onClear: () -> Void
     let onDismiss: () -> Void
 
     @State private var tracePoints: [CGPoint] = []
+    /// 手で選んだ候補。未選択なら推奨を使います。
+    @State private var selectedCandidateID: CutoutCandidate.ID?
+
+    private var candidates: [CutoutCandidate] {
+        makeCandidates(tracePoints)
+    }
+
+    private var selectedCandidate: CutoutCandidate? {
+        let candidates = candidates
+        if let selectedCandidateID, let picked = candidates.first(where: { $0.id == selectedCandidateID }) {
+            return picked
+        }
+
+        return candidates.first { $0.isRecommended } ?? candidates.first
+    }
 
     private var previewContours: [CanvasPathContour] {
-        tracePoints.isEmpty ? existingContours : makeContours(tracePoints)
+        tracePoints.isEmpty ? existingContours : (selectedCandidate?.contours ?? [])
     }
 
     var body: some View {
@@ -33,6 +48,11 @@ struct ImageCutoutView: View {
             Divider()
 
             preview
+
+            if !candidates.isEmpty {
+                Divider()
+                candidateBar
+            }
 
             Divider()
 
@@ -63,7 +83,7 @@ struct ImageCutoutView: View {
                 : "現在の輪郭を表示しています。ドラッグでなぞり直せます"
         }
 
-        return "指を離すと輪郭に整えます。やり直すには「なぞり直す」"
+        return "候補を選び直せます。やり直すには「なぞり直す」"
     }
 
     private var preview: some View {
@@ -95,6 +115,10 @@ struct ImageCutoutView: View {
                     .onChanged { value in
                         appendTracePoint(value.location, in: rect)
                     }
+                    .onEnded { _ in
+                        // なぞり直すたびに推奨へ戻します。
+                        selectedCandidateID = nil
+                    }
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -118,6 +142,47 @@ struct ImageCutoutView: View {
         }
     }
 
+    /// 候補選択バー。抽出器が増えるとここに並びます。
+    private var candidateBar: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(candidates) { candidate in
+                    let isSelected = selectedCandidate?.id == candidate.id
+
+                    Button {
+                        selectedCandidateID = candidate.id
+                    } label: {
+                        HStack(spacing: 5) {
+                            if candidate.isRecommended {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 9))
+                            }
+
+                            Text(candidate.displayName)
+                                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+
+                            if let score = candidate.score {
+                                Text(String(format: "%.1f", score))
+                                    .font(.system(size: 11).monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule().fill(isSelected ? Color.accentColor.opacity(0.16) : Color(nsColor: .tertiarySystemFill))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help(candidate.helpText)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .scrollIndicators(.never)
+    }
+
     private var footer: some View {
         HStack(spacing: 10) {
             Button("キャンセル", action: onDismiss)
@@ -133,15 +198,16 @@ struct ImageCutoutView: View {
 
             Button("なぞり直す") {
                 tracePoints = []
+                selectedCandidateID = nil
             }
             .disabled(tracePoints.isEmpty)
 
             Button("適用") {
-                onApply(tracePoints)
+                onApply(selectedCandidate?.contours ?? [])
                 onDismiss()
             }
             .keyboardShortcut(.defaultAction)
-            .disabled(makeContours(tracePoints).isEmpty)
+            .disabled(selectedCandidate == nil)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
