@@ -32,6 +32,7 @@ struct CutoutCandidateTests {
         #expect(candidates.last?.score == nil)
     }
 
+    /// 円のなぞりでは矩形補正が輪郭を作らないため、候補は手描きだけになります。
     @Test func 円のなぞりでは候補は手描きだけ() {
         let candidates = buildCandidates(tracePoints: circleTrace(radius: 0.3))
 
@@ -59,9 +60,26 @@ struct CutoutCandidateTests {
             guide: guide
         )
         #expect(scored.isEmpty)
+    }
 
-        // 結果として、四角くなぞっても候補は手描きだけになります。
-        #expect(buildCandidates(tracePoints: guide).map(\.source) == [nil])
+    /// **足切りされた候補も一覧に残します。** 自動で選ばれなかっただけで、手で選べば使えます。
+    /// 消してしまうと「自動が外れても人間が選べる」という前提が崩れます。
+    @Test func 足切りされた候補もスコアなしで一覧に残る() throws {
+        let candidates = buildCandidates(tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
+
+        let rectangular = try #require(candidates.first { $0.source == .rectangularGuide })
+        #expect(rectangular.score == nil)
+        #expect(rectangular.isRecommended == false)
+        #expect(rectangular.contours.isEmpty == false)
+    }
+
+    /// スコアの付いた候補が先、付かない候補が後、手描きは最後です。
+    @Test func スコアのない候補は後ろへ並ぶ() {
+        let candidates = buildCandidates(tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
+
+        #expect(candidates.count == 2)
+        #expect(candidates[0].source == .rectangularGuide)
+        #expect(candidates[1].source == nil)
     }
 
     /// 推奨は常に1つだけです。
@@ -83,6 +101,18 @@ struct CutoutCandidateTests {
     @Test func なぞりが短すぎれば候補は空() {
         #expect(buildCandidates(tracePoints: []).isEmpty)
         #expect(buildCandidates(tracePoints: [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.2, y: 0.2)]).isEmpty)
+    }
+
+    /// 矩形補正は平滑化をかけないため、角がそのまま残ります。
+    @Test func 矩形補正の候補は角が保たれる() throws {
+        let candidates = buildCandidates(tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
+        let rectangular = try #require(candidates.first { $0.source == .rectangularGuide })
+        let points = try #require(rectangular.contours.first?.points)
+
+        for corner in [CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.8, y: 0.8)] {
+            let distance = points.map { hypot($0.x - corner.x, $0.y - corner.y) }.min() ?? 1
+            #expect(distance < 0.01)
+        }
     }
 
     /// 矩形と色矩形は平滑化をかけません。すでに直線的で、かけると角が丸まります。

@@ -21,6 +21,8 @@ nonisolated struct ContourCandidateSelector {
 
     init() {}
 
+    /// 自動で推奨に上げる候補。**移植元でも呼び出し元はありません**が、
+    /// 判定の基準そのものなので契約として残しています。
     func bestCandidate(from candidates: [ContourCandidate], guide: [CGPoint]) -> ContourCandidate? {
         scoredCandidates(from: candidates, guide: guide)
             .filter { $0.score >= Self.minimumAutoScore }

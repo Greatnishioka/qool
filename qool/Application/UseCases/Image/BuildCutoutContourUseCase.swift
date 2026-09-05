@@ -22,7 +22,8 @@ nonisolated struct BuildCutoutContourUseCase {
             return []
         }
 
-        let polishedPoints = smoother.polished(tracePoints)
+        // 移植元と同じく densify を先に一度かけます。点の分布が変わり、結果も変わります。
+        let polishedPoints = smoother.polished(smoother.densify(tracePoints))
         guard polishedPoints.count >= Self.minimumPointCount else {
             return []
         }

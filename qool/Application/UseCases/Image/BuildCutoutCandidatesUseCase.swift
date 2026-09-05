@@ -29,36 +29,80 @@ nonisolated struct BuildCutoutCandidatesUseCase {
     }
 
     /// - Parameter tracePoints: 画像の表示矩形を基準にした正規化座標（`0...1`）。
-    /// - Returns: 推奨 → スコア降順 → 手描き、の順。なぞりが短ければ空。
+    /// - Returns: 推奨 → スコア降順 → 抽出順 → 手描き、の順。なぞりが短ければ空。
     func callAsFunction(tracePoints: [CGPoint]) -> [CutoutCandidate] {
         let handDrawnContours = buildContour(tracePoints: tracePoints)
         guard !handDrawnContours.isEmpty else {
             return []
         }
 
-        let scored = selector.scoredCandidates(from: extract(from: tracePoints), guide: tracePoints)
-        let recommendedID = selector.bestCandidate(from: extract(from: tracePoints), guide: tracePoints)?.source
+        let extracted = extract(from: tracePoints)
+        let scored = selector.scoredCandidates(from: extracted, guide: tracePoints)
+        let scoreBySource = Dictionary(
+            scored.map { ($0.candidate.source, $0.score) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let recommendedSource = scored
+            .filter { $0.score >= ContourCandidateSelector.minimumAutoScore }
+            .max { first, second in first.score < second.score }?
+            .candidate
+            .source
 
-        let extracted = scored
-            .sorted { $0.score > $1.score }
-            .map { entry in
-                CutoutCandidate(
-                    source: entry.candidate.source,
-                    contours: contours(for: entry.candidate),
-                    score: entry.score,
-                    isRecommended: entry.candidate.source == recommendedID
+        // **足切りされた候補も残します。** 自動で選ばれなかっただけで、
+        // 手で選べば使えます。スコアは `nil` になり、末尾側へ並びます。
+        let displayed = extracted
+            .enumerated()
+            .map { index, candidate in
+                (
+                    index: index,
+                    candidate: CutoutCandidate(
+                        source: candidate.source,
+                        contours: contours(for: candidate),
+                        score: scoreBySource[candidate.source],
+                        isRecommended: candidate.source == recommendedSource
+                    )
                 )
             }
+            .sorted(by: isOrderedBefore)
+            .map(\.candidate)
 
-        return extracted + [
+        return displayed + [
             CutoutCandidate(
                 source: nil,
                 contours: handDrawnContours,
                 score: nil,
                 // 抽出器が推奨を出せなかったときは、手描きが推奨になります。
-                isRecommended: recommendedID == nil
+                isRecommended: recommendedSource == nil
             )
         ]
+    }
+
+    /// 推奨 → スコア降順（スコアなしは後ろ）→ 抽出順。
+    ///
+    /// 最後に抽出順で決めるのは、**同点の並びを固定するため**です。
+    /// Swift の `sorted` は安定ソートを保証しません。
+    private func isOrderedBefore(
+        _ first: (index: Int, candidate: CutoutCandidate),
+        _ second: (index: Int, candidate: CutoutCandidate)
+    ) -> Bool {
+        if first.candidate.isRecommended != second.candidate.isRecommended {
+            return first.candidate.isRecommended
+        }
+
+        switch (first.candidate.score, second.candidate.score) {
+        case let (firstScore?, secondScore?):
+            if firstScore != secondScore {
+                return firstScore > secondScore
+            }
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        case (nil, nil):
+            break
+        }
+
+        return first.index < second.index
     }
 
     private func extract(from guide: [CGPoint]) -> [ContourCandidate] {

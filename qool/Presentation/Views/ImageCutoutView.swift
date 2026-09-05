@@ -24,12 +24,12 @@ struct ImageCutoutView: View {
     /// 手で選んだ候補。未選択なら推奨を使います。
     @State private var selectedCandidateID: CutoutCandidate.ID?
 
-    private var candidates: [CutoutCandidate] {
-        makeCandidates(tracePoints)
-    }
+    /// **なぞり終わりに一度だけ作ります。**
+    /// 計算プロパティにすると `body` の評価ごとに走り、抽出器を足したときに
+    /// 画像解析がメインスレッドで何度も動きます。
+    @State private var candidates: [CutoutCandidate] = []
 
     private var selectedCandidate: CutoutCandidate? {
-        let candidates = candidates
         if let selectedCandidateID, let picked = candidates.first(where: { $0.id == selectedCandidateID }) {
             return picked
         }
@@ -83,7 +83,9 @@ struct ImageCutoutView: View {
                 : "現在の輪郭を表示しています。ドラッグでなぞり直せます"
         }
 
-        return "候補を選び直せます。やり直すには「なぞり直す」"
+        return candidates.isEmpty
+            ? "指を離すと候補を作ります"
+            : "候補を選び直せます。やり直すには「なぞり直す」"
     }
 
     private var preview: some View {
@@ -116,8 +118,9 @@ struct ImageCutoutView: View {
                         appendTracePoint(value.location, in: rect)
                     }
                     .onEnded { _ in
-                        // なぞり直すたびに推奨へ戻します。
+                        // なぞり終わりにまとめて抽出します。
                         selectedCandidateID = nil
+                        candidates = makeCandidates(tracePoints)
                     }
             )
         }
@@ -199,6 +202,7 @@ struct ImageCutoutView: View {
             Button("なぞり直す") {
                 tracePoints = []
                 selectedCandidateID = nil
+                candidates = []
             }
             .disabled(tracePoints.isEmpty)
 
