@@ -17,6 +17,10 @@ nonisolated struct CanvasElementPolygons {
 
     /// 塗られている部分の輪郭。線・テキスト・輪郭のない画像は空になります。
     func filled(for element: CanvasElement) -> [[CGPoint]] {
+        rotated(unrotatedFilled(for: element), by: element)
+    }
+
+    private func unrotatedFilled(for element: CanvasElement) -> [[CGPoint]] {
         switch element.kind {
         case .rectangle:
             return [roundedRectanglePoints(for: element)]
@@ -38,7 +42,32 @@ nonisolated struct CanvasElementPolygons {
             return polygons
         }
 
-        return [rectanglePoints(of: element.frame)]
+        return rotated([rectanglePoints(of: element.frame)], by: element)
+    }
+
+    /// 描画は `rotationEffect` で枠の中心を軸に回します。**外形も同じだけ回さないと、
+    /// 斜めの線がウィンドウのマスクから外れて切れます。**
+    private func rotated(_ polygons: [[CGPoint]], by element: CanvasElement) -> [[CGPoint]] {
+        guard element.rotationAngleDegrees != 0 else {
+            return polygons
+        }
+
+        let radians = element.rotationAngleDegrees * .pi / 180
+        let cosine = cos(radians)
+        let sine = sin(radians)
+        let center = CGPoint(x: element.frame.midX, y: element.frame.midY)
+
+        return polygons.map { polygon in
+            polygon.map { point in
+                let dx = point.x - center.x
+                let dy = point.y - center.y
+
+                return CGPoint(
+                    x: center.x + dx * cosine - dy * sine,
+                    y: center.y + dx * sine + dy * cosine
+                )
+            }
+        }
     }
 
     // MARK: - 種類ごとの変換

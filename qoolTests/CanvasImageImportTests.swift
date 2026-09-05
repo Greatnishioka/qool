@@ -22,7 +22,6 @@ struct CanvasImageImportTests {
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
-            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: repository),
             onSave: { _ in }
         )
 

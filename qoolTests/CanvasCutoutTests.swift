@@ -21,7 +21,6 @@ struct CanvasCutoutTests {
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
-            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: repository),
             onSave: { _ in }
         )
 
@@ -95,8 +94,11 @@ struct CanvasCutoutTests {
         }
     }
 
-    /// 元画像を輪郭のまわりまで切り詰め、原寸のほうを片付けることの確認。
-    @Test func 切り抜くと元画像が切り詰められ原寸は消える() async throws {
+    /// 元画像を輪郭のまわりまで切り詰めることの確認。
+    ///
+    /// **原寸のファイルはここでは消えません。** 消すのは読み込み直後だけで、
+    /// 保存が確定する前に消すと、落ちたときにメモが存在しない画像を指すためです。
+    @Test func 切り抜くと元画像が切り詰められる() async throws {
         let root = URL.temporaryDirectory.appending(
             path: "qool-tests-\(UUID().uuidString)",
             directoryHint: .isDirectory
@@ -108,7 +110,6 @@ struct CanvasCutoutTests {
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
-            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: repository),
             onSave: { _ in }
         )
 
@@ -129,8 +130,8 @@ struct CanvasCutoutTests {
         #expect(updated.imageAssetID != originalAssetID)
         #expect(viewModel.image(for: updated) != nil)
         #expect(updated.frame.width < element.frame.width)
-        // 原寸のファイルは掃除されます。
-        #expect(repository.data(for: originalAssetID, in: viewModel.memo.id) == nil)
+        // 原寸はまだ残っています（掃除は次回の読み込み時）。
+        #expect(repository.data(for: originalAssetID, in: viewModel.memo.id) != nil)
     }
 
     @Test func 点が足りなければ何も変えない() async throws {

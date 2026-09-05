@@ -21,7 +21,6 @@ final class CanvasViewModel: ObservableObject {
     private let unionElementsUseCase: UnionCanvasElementsUseCase
     private let imageStore: CanvasImageStore
     private let importImageUseCase: ImportImageUseCase
-    private let pruneImageAssetsUseCase: PruneImageAssetsUseCase
     private let cropGeometry = CutoutCropGeometry()
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
     private let buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase
@@ -31,7 +30,6 @@ final class CanvasViewModel: ObservableObject {
         memo: Memo,
         imageStore: CanvasImageStore,
         importImageUseCase: ImportImageUseCase,
-        pruneImageAssetsUseCase: PruneImageAssetsUseCase,
         buildCutoutContourUseCase: BuildCutoutContourUseCase = BuildCutoutContourUseCase(),
         buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase = BuildCutoutCandidatesUseCase(),
         selectionService: CanvasSelectionService = CanvasSelectionService(),
@@ -51,7 +49,6 @@ final class CanvasViewModel: ObservableObject {
         self.unionElementsUseCase = unionElementsUseCase
         self.imageStore = imageStore
         self.importImageUseCase = importImageUseCase
-        self.pruneImageAssetsUseCase = pruneImageAssetsUseCase
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
         self.buildCutoutCandidatesUseCase = buildCutoutCandidatesUseCase
         self.onSave = onSave
@@ -91,7 +88,6 @@ final class CanvasViewModel: ObservableObject {
         }
         cropSourceImage(of: elementID)
         save()
-        pruneUnusedAssets()
 
         return true
     }
@@ -108,24 +104,20 @@ final class CanvasViewModel: ObservableObject {
 
         let pixelSize = CGSize(width: sourceImage.width, height: sourceImage.height)
 
-        guard let cropRect = cropGeometry.cropRect(for: element.pathContours, imagePixelSize: pixelSize),
-              let cropped = sourceImage.cropping(
-                  to: cropGeometry.pixelRect(for: cropRect, imagePixelSize: pixelSize)
+        guard let crop = cropGeometry.crop(
+                  for: element.pathContours,
+                  imagePixelSize: pixelSize,
+                  displaySize: element.frame.size
               ),
+              let cropped = sourceImage.cropping(to: crop.pixelRect),
               let data = CanvasImageStore.pngData(from: cropped),
               let assetID = try? importImageUseCase(data, in: memo.id) else {
             return
         }
 
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
-            element = cropGeometry.applied(cropRect, to: element, assetID: assetID)
+            element = cropGeometry.applied(crop, to: element, assetID: assetID)
         }
-    }
-
-    /// **保存のたびには呼びません。** 孤児が生まれるのは画像を差し替えたときと
-    /// 要素を消したときだけで、毎回ディレクトリを読む必要がありません。
-    private func pruneUnusedAssets() {
-        try? pruneImageAssetsUseCase(for: memo)
     }
 
     /// なぞりから作った候補。推奨 → スコア降順 → 手描き の順で並びます。**要素は変えません。**
@@ -445,7 +437,6 @@ final class CanvasViewModel: ObservableObject {
         }
 
         deleteElementsUseCase(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
-        pruneUnusedAssets()
         selectedElementIDs.removeAll()
         editingUnionElementID = nil
         selectedUnionSourceID = nil

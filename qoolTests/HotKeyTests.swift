@@ -10,10 +10,12 @@ struct HotKeyTests {
         private(set) var registered: [HotKeyShortcut] = []
         private(set) var unregisterCount = 0
         var failsToRegister = false
+        /// この組み合わせだけ拒む。ほかのアプリが先に取っている状況を再現します。
+        var rejects: HotKeyShortcut?
         var onPress: (() -> Void)?
 
         func register(_ shortcut: HotKeyShortcut, onPress: @escaping () -> Void) throws {
-            guard !failsToRegister else {
+            guard !failsToRegister, rejects != shortcut else {
                 throw HotKeyRegistrationFailure.rejectedBySystem(status: -9878)
             }
 
@@ -138,6 +140,46 @@ struct HotKeyTests {
         #expect(hotKey.registered.count == 2)
         #expect(hotKey.registered.last == HotKeyShortcut(.space, modifiers: [.option]))
         #expect(settings.hotKeyConfiguration.prefix.keyCode == VirtualKey.space.rawValue)
+    }
+
+    /// **登録できないキーを選んでも、動いていた割り当ては残ります。**
+    /// 先に保存すると、入力ミスや衝突だけで正常だった構成まで失います。
+    @Test func 登録できないキーへは切り替えない() {
+        let (coordinator, settings, hotKey) = makeCoordinator()
+        coordinator.start()
+        hotKey.failsToRegister = true
+
+        coordinator.updatePrefix(keyCode: VirtualKey.space.rawValue, modifiers: [.option])
+
+        #expect(coordinator.configuration.prefix == HotKeyConfiguration.default.prefix)
+        #expect(settings.hotKeyConfiguration.prefix == HotKeyConfiguration.default.prefix)
+        #expect(coordinator.registrationFailureMessage != nil)
+    }
+
+    /// 失敗しても前のキーは登録し直します。**登録は解除してから行う**ので、
+    /// 戻さないとホットキーが一つも効かなくなります。
+    @Test func 切り替えに失敗したら前のキーを登録し直す() {
+        let hotKey = SpyGlobalHotKey()
+        let (coordinator, _, _) = makeCoordinator(hotKey: hotKey)
+        coordinator.start()
+        hotKey.rejects = HotKeyShortcut(.space, modifiers: [.option])
+
+        coordinator.updatePrefix(keyCode: VirtualKey.space.rawValue, modifiers: [.option])
+
+        #expect(hotKey.registered.last == HotKeyConfiguration.default.prefix)
+        #expect(coordinator.registrationFailureMessage != nil)
+    }
+
+    /// 2 打目を変えるだけなら、OS への登録はやり直しません。
+    @Test func 割り当てだけの変更では登録し直さない() {
+        let (coordinator, _, hotKey) = makeCoordinator()
+        coordinator.start()
+        let registrationCount = hotKey.registered.count
+
+        coordinator.updateBinding(keyCode: VirtualKey.m.rawValue, for: .toggleMainMemo)
+
+        #expect(hotKey.registered.count == registrationCount)
+        #expect(coordinator.keyCode(for: .toggleMainMemo) == VirtualKey.m.rawValue)
     }
 
     // MARK: - 入力の検証

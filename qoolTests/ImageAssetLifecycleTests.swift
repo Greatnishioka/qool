@@ -28,43 +28,89 @@ struct ImageAssetLifecycleTests {
 
     // MARK: - 切り詰める範囲
 
+    /// 等倍表示なら余白は下限の 48px。
     @Test func 輪郭のまわりに余白を付けて切り詰める() throws {
-        let pixelSize = CGSize(width: 1000, height: 1000)
-        let cropRect = try #require(
-            cropGeometry.cropRect(for: [contour(CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2))], imagePixelSize: pixelSize)
-        )
-
-        // 48px = 正規化して 0.048。
-        #expect(abs(cropRect.minX - (0.4 - 0.048)) < 0.0001)
-        #expect(abs(cropRect.width - (0.2 + 0.096)) < 0.0001)
-    }
-
-    @Test func 画像の外へははみ出さない() throws {
-        let cropRect = try #require(
-            cropGeometry.cropRect(
-                for: [contour(CGRect(x: 0, y: 0, width: 0.3, height: 0.3))],
-                imagePixelSize: CGSize(width: 200, height: 200)
+        let crop = try #require(
+            cropGeometry.crop(
+                for: [contour(CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2))],
+                imagePixelSize: CGSize(width: 1000, height: 1000),
+                displaySize: CGSize(width: 1000, height: 1000)
             )
         )
 
-        #expect(cropRect.minX >= 0)
-        #expect(cropRect.minY >= 0)
-        #expect(cropRect.maxX <= 1)
-        #expect(cropRect.maxY <= 1)
+        #expect(abs(crop.normalizedRect.minX - (0.4 - 0.048)) < 0.001)
+        #expect(abs(crop.normalizedRect.width - (0.2 + 0.096)) < 0.001)
+    }
+
+    /// **大きな写真を小さく表示しているときが要点です。** 余白は画素、調整はポイントなので、
+    /// 画素側を縮尺のぶん広げないと、あとから余白を上げても画像が尽きます。
+    @Test func 縮小表示なら余白は縮尺のぶん広がる() throws {
+        let crop = try #require(
+            cropGeometry.crop(
+                for: [contour(CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2))],
+                imagePixelSize: CGSize(width: 2000, height: 2000),
+                displaySize: CGSize(width: 320, height: 320)
+            )
+        )
+
+        // 縮尺は 6.25 倍。調整で広げられるのは 24 + 14 = 38pt なので 237.5px。
+        let expectedMargin = CutoutCropGeometry.adjustableMarginPoints * 2000 / 320
+        #expect(expectedMargin > CutoutCropGeometry.minimumMarginPixels)
+        #expect(abs(crop.pixelRect.minX - (0.4 * 2000 - expectedMargin)) < 1)
+        // それでも切り詰める価値は残ります。
+        #expect(crop.normalizedRect.width < 0.9)
+    }
+
+    @Test func 画像の外へははみ出さない() throws {
+        let crop = try #require(
+            cropGeometry.crop(
+                for: [contour(CGRect(x: 0, y: 0, width: 0.3, height: 0.3))],
+                imagePixelSize: CGSize(width: 2000, height: 2000),
+                displaySize: CGSize(width: 320, height: 320)
+            )
+        )
+
+        #expect(crop.normalizedRect.minX >= 0)
+        #expect(crop.normalizedRect.minY >= 0)
+        #expect(crop.normalizedRect.maxX <= 1)
+        #expect(crop.normalizedRect.maxY <= 1)
     }
 
     /// わずかしか縮まないのに作り直すと、ID が変わって掃除まで走ります。割に合いません。
     @Test func ほとんど縮まないなら切り詰めない() {
-        let cropRect = cropGeometry.cropRect(
+        let crop = cropGeometry.crop(
             for: [contour(CGRect(x: 0.02, y: 0.02, width: 0.96, height: 0.96))],
-            imagePixelSize: CGSize(width: 1000, height: 1000)
+            imagePixelSize: CGSize(width: 1000, height: 1000),
+            displaySize: CGSize(width: 1000, height: 1000)
         )
 
-        #expect(cropRect == nil)
+        #expect(crop == nil)
     }
 
     @Test func 輪郭がなければ切り詰めない() {
-        #expect(cropGeometry.cropRect(for: [], imagePixelSize: CGSize(width: 100, height: 100)) == nil)
+        #expect(
+            cropGeometry.crop(
+                for: [],
+                imagePixelSize: CGSize(width: 100, height: 100),
+                displaySize: CGSize(width: 100, height: 100)
+            ) == nil
+        )
+    }
+
+    /// 正規化は画素の格子に載せたあとに割り出します。ずれると中身と輪郭が食い違います。
+    @Test func 正規化した範囲は切り出す画素とぴったり対応する() throws {
+        let pixelSize = CGSize(width: 777, height: 333)
+        let crop = try #require(
+            cropGeometry.crop(
+                for: [contour(CGRect(x: 0.3137, y: 0.2891, width: 0.2113, height: 0.1777))],
+                imagePixelSize: pixelSize,
+                displaySize: pixelSize
+            )
+        )
+
+        #expect(crop.pixelRect == crop.pixelRect.integral)
+        #expect(abs(crop.normalizedRect.minX * pixelSize.width - crop.pixelRect.minX) < 0.0001)
+        #expect(abs(crop.normalizedRect.width * pixelSize.width - crop.pixelRect.width) < 0.0001)
     }
 
     // MARK: - 切り詰めた後の見た目
@@ -76,11 +122,15 @@ struct ImageAssetLifecycleTests {
             contours: [contour(CGRect(x: 0.3, y: 0.25, width: 0.4, height: 0.5))],
             frame: frame
         )
-        let cropRect = try #require(
-            cropGeometry.cropRect(for: original.pathContours, imagePixelSize: CGSize(width: 800, height: 600))
+        let crop = try #require(
+            cropGeometry.crop(
+                for: original.pathContours,
+                imagePixelSize: CGSize(width: 800, height: 600),
+                displaySize: frame.size
+            )
         )
 
-        let cropped = cropGeometry.applied(cropRect, to: original, assetID: UUID())
+        let cropped = cropGeometry.applied(crop, to: original, assetID: UUID())
 
         for (before, after) in zip(original.pathContours[0].points, cropped.pathContours[0].points) {
             let beforePoint = CGPoint(
@@ -102,24 +152,19 @@ struct ImageAssetLifecycleTests {
             contours: [contour(CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2))],
             frame: CGRect(x: 0, y: 0, width: 400, height: 400)
         )
-        let cropRect = try #require(
-            cropGeometry.cropRect(for: original.pathContours, imagePixelSize: CGSize(width: 1000, height: 1000))
+        let crop = try #require(
+            cropGeometry.crop(
+                for: original.pathContours,
+                imagePixelSize: CGSize(width: 1000, height: 1000),
+                displaySize: original.frame.size
+            )
         )
         let newAssetID = UUID()
 
-        let cropped = cropGeometry.applied(cropRect, to: original, assetID: newAssetID)
+        let cropped = cropGeometry.applied(crop, to: original, assetID: newAssetID)
 
         #expect(cropped.frame.width < original.frame.width)
         #expect(cropped.imageAssetID == newAssetID)
-    }
-
-    @Test func 画素の範囲は格子に載る() {
-        let pixelRect = cropGeometry.pixelRect(
-            for: CGRect(x: 0.1234, y: 0.5678, width: 0.3, height: 0.3),
-            imagePixelSize: CGSize(width: 777, height: 333)
-        )
-
-        #expect(pixelRect == pixelRect.integral)
     }
 
     // MARK: - 使われなくなった画像の掃除
@@ -183,6 +228,33 @@ struct ImageAssetLifecycleTests {
 
             #expect(repository.data(for: sourceAssetID, in: memo.id) != nil)
         }
+    }
+
+    /// **掃除が走るのは読み込み直後だけです。** 編集の途中で消すと、
+    /// まとめ書きが確定する前に落ちたときメモが存在しない画像を指します。
+    @MainActor
+    @Test func 読み込み直後に孤児が消える() async throws {
+        let root = URL.temporaryDirectory.appending(
+            path: "qool-tests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let imageRepository = FileImageAssetRepositoryInfrastructure(rootDirectory: root)
+        let memoRepository = InMemoryMemoRepositoryInfrastructure()
+
+        var memo = Memo(title: "掃除")
+        let usedID = try imageRepository.save(pngHeader, in: memo.id)
+        let orphanID = try imageRepository.save(pngHeader, in: memo.id)
+        memo.canvas.elements = [
+            CanvasElement(kind: .imageCutout, frame: .zero, fillColor: .clear, imageAssetID: usedID)
+        ]
+        try await memoRepository.save(memo)
+
+        _ = AppRootViewModel.bootstrap(repository: memoRepository, imageRepository: imageRepository)
+
+        #expect(imageRepository.data(for: usedID, in: memo.id) != nil)
+        #expect(imageRepository.data(for: orphanID, in: memo.id) == nil)
     }
 
     @Test func 画像を持たないメモでも失敗しない() throws {

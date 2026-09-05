@@ -12,7 +12,10 @@
 nonisolated struct ImageAdjustment: Equatable, Hashable, Codable {
     static let opacityRange: ClosedRange<Double> = 0.2...1
     static let brightnessRange: ClosedRange<Double> = -0.15...0.45
-    static let paddingRange: ClosedRange<Double> = 0...80
+    /// **StarWindow の 0...80 から狭めています。** 余白の分だけ元画像を残す必要があり、
+    /// 80pt を保証すると大きな写真がほとんど切り詰められなくなるためです
+    /// （[CutoutCropGeometry](../Services/CutoutCropGeometry.swift)）。
+    static let paddingRange: ClosedRange<Double> = 0...24
     static let blurRange: ClosedRange<Double> = 0...14
 
     static let `default` = ImageAdjustment()

@@ -52,6 +52,24 @@ struct FloatingMemoTests {
         #expect(outline.contours[0].points.count > 4)
     }
 
+    /// 描画は `rotationEffect` で回すので、外形も同じだけ回さないと形が合いません。
+    /// **斜めの線がマスクから外れて切れます。**
+    @Test func 回転した要素の外形も回る() throws {
+        let line = CanvasElement(
+            kind: .line,
+            frame: CGRect(x: 0, y: 45, width: 100, height: 10),
+            fillColor: .clear,
+            rotationAngleDegrees: 90
+        )
+        let outline = try #require(buildOutline(from: Canvas(elements: [line])))
+
+        // 横長の枠を 90 度回すと縦長になります。
+        #expect(abs(outline.bounds.width - 10) < 0.0001)
+        #expect(abs(outline.bounds.height - 100) < 0.0001)
+        #expect(abs(outline.bounds.midX - 50) < 0.0001)
+        #expect(abs(outline.bounds.midY - 50) < 0.0001)
+    }
+
     /// 線やテキストは塗る面を持ちませんが、**掴めないと困る**ので frame で代用します。
     @Test func 面を持たない要素もframeの矩形として形になる() throws {
         let line = CanvasElement(
@@ -135,6 +153,29 @@ struct FloatingMemoTests {
 
         #expect(!hitTest.contains(CGPoint(x: -1, y: 50), in: leftHalf, bounds: viewBounds, isTopLeftOrigin: true))
         #expect(!hitTest.contains(CGPoint(x: 25, y: 50), in: [], bounds: viewBounds, isTopLeftOrigin: true))
+    }
+
+    // MARK: - 一覧とキャンバスの同期
+
+    /// **キャンバスは開いた時点の `Memo` を持ち続けます。**
+    /// その写しをそのまま書き戻すと、あいだに動かした貼り付け位置が巻き戻ります。
+    @MainActor
+    @Test func キャンバスの保存で貼り付け位置が巻き戻らない() async throws {
+        let viewModel = AppRootViewModel.bootstrap(repository: InMemoryMemoRepositoryInfrastructure())
+        let created = try #require(await viewModel.createMemo())
+
+        // キャンバスが開いた時点の写し（まだ貼っていない）。
+        let staleMemo = created
+
+        await viewModel.updateFloatingOrigin(CGPoint(x: 300, y: 400), for: created.id)
+        // キャンバス側が編集して保存する。
+        var edited = staleMemo
+        edited.title = "編集した"
+        await viewModel.saveMemo(edited)
+
+        let saved = try #require(viewModel.memos.first { $0.id == created.id })
+        #expect(saved.title == "編集した")
+        #expect(saved.floatingOrigin == CGPoint(x: 300, y: 400))
     }
 
     // MARK: - 永続化

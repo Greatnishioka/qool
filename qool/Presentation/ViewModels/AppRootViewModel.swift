@@ -31,7 +31,7 @@ final class AppRootViewModel: ObservableObject {
     /// キャンバスへ引き渡すもの。画像は `Memo` に含めないため、別経路で解決します。
     let imageStore: CanvasImageStore
     let importImageUseCase: ImportImageUseCase
-    let pruneImageAssetsUseCase: PruneImageAssetsUseCase
+    private let pruneImageAssetsUseCase: PruneImageAssetsUseCase
     private let flushMemosUseCase: FlushMemosUseCase
     private let observeWriteStatesUseCase: ObserveWriteStatesUseCase
     private let elementFactory: CanvasElementFactory
@@ -125,10 +125,22 @@ final class AppRootViewModel: ObservableObject {
         do {
             memos = try loadMemosUseCase()
             didFailToLoad = false
+            pruneUnusedImageAssets()
         } catch {
             // 読めなかったときに空配列を入れると「メモが 0 件」と区別できません。
             // 手元の内容はそのまま残します。
             didFailToLoad = true
+        }
+    }
+
+    /// 参照されなくなった画像を消す。**読み込んだ直後にだけ行います。**
+    ///
+    /// 編集の途中で消すと危険です。メモの書き込みはまとめ書きで遅れるため、
+    /// 先にファイルを消すと、**確定前に落ちたときディスク上のメモが存在しない画像を指します。**
+    /// 読み込み直後だけは、手元のメモとディスクの内容が必ず一致しています。
+    private func pruneUnusedImageAssets() {
+        for memo in memos {
+            try? pruneImageAssetsUseCase(for: memo)
         }
     }
 
@@ -172,6 +184,8 @@ final class AppRootViewModel: ObservableObject {
     }
 
     func saveMemo(_ memo: Memo) async {
+        let memo = preservingFieldsCanvasDoesNotOwn(memo)
+
         do {
             // 戻り値を使うのが要点。`SaveMemoUseCase` が更新日時を差し替えるため、
             // 引数の `memo` をそのまま一覧へ入れると更新日時が古いままになります。
@@ -184,6 +198,21 @@ final class AppRootViewModel: ObservableObject {
             selectedMemo = memo
             apply(memo)
         }
+    }
+
+    /// **キャンバスは開いた時点の写しを持ち続けます。** その間に貼り付け位置が変わっても
+    /// キャンバス側は知らないため、そのまま書くと位置が巻き戻ります
+    /// （貼ったウィンドウを動かしたあとキャンバスを編集する、で再現します）。
+    /// 貼り付け位置はキャンバスが編集しない情報なので、一覧側の値を残します。
+    private func preservingFieldsCanvasDoesNotOwn(_ memo: Memo) -> Memo {
+        guard let current = memos.first(where: { $0.id == memo.id }) else {
+            return memo
+        }
+
+        var preserved = memo
+        preserved.floatingOrigin = current.floatingOrigin
+
+        return preserved
     }
 
     /// デスクトップに貼る位置を書き換える。`nil` ではがします。

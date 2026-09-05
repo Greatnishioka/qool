@@ -38,13 +38,22 @@ final class HotKeyCoordinator: ObservableObject {
     }
 
     func start() {
+        register(configuration.prefix)
+    }
+
+    @discardableResult
+    private func register(_ prefix: HotKeyShortcut) -> Bool {
         do {
-            try globalHotKey.register(configuration.prefix) { [weak self] in
+            try globalHotKey.register(prefix) { [weak self] in
                 self?.prefixPressed()
             }
             registrationFailureMessage = nil
+
+            return true
         } catch {
             registrationFailureMessage = error.localizedDescription
+
+            return false
         }
     }
 
@@ -99,11 +108,23 @@ final class HotKeyCoordinator: ObservableObject {
         configuration.bindings.first { $0.action == action }?.keyCode
     }
 
+    /// **登録できたときだけ設定を書き換えます。**
+    /// 先に保存すると、ほかのアプリと衝突するキーを選んだだけで、
+    /// 動いていた割り当てまで失い、再起動しても失敗する設定が読み込まれます。
     private func apply(_ updated: HotKeyConfiguration) {
+        if updated.prefix != configuration.prefix {
+            guard register(updated.prefix) else {
+                // 登録は前のキーを解除してから行うため、失敗したら戻しておきます。
+                let failureMessage = registrationFailureMessage
+                register(configuration.prefix)
+                registrationFailureMessage = failureMessage
+
+                return
+            }
+        }
+
         settings.hotKeyConfiguration = updated
         configuration = updated
-        // プレフィックスが変わっているかもしれないので、登録し直します。
-        start()
     }
 
     func isMain(_ memo: Memo) -> Bool {

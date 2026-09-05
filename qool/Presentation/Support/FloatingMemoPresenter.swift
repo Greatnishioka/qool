@@ -61,8 +61,14 @@ final class FloatingMemoPresenter {
 
     private func present(_ memo: Memo) {
         guard let origin = memo.floatingOrigin, let outline = buildOutline(from: memo.canvas) else {
-            // 要素をすべて消したメモには形がありません。貼ったままにはできないのではがします。
+            // 要素をすべて消したメモには形がありません。**ウィンドウを閉じるだけでなく
+            // `floatingOrigin` も戻します。** 残すと一覧に「はがす」が出続け、
+            // 要素を足し直した瞬間に、貼り直していないのに現れます。
             close(memo.id)
+
+            if memo.floatingOrigin != nil {
+                unpin(memo.id)
+            }
 
             return
         }
