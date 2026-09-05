@@ -9,8 +9,6 @@ import SwiftUI
 /// そのため 2 ストローク（押して離す → 次を押す）になります。
 @MainActor
 final class HotKeyCoordinator: ObservableObject {
-    /// 2 打目を待つ時間。**押しっぱなしで固まらないように**、放っておけば抜けます。
-    private static let secondStrokeTimeout = Duration.seconds(2)
     private nonisolated static let overlayVerticalOffsetRatio = 0.18
 
     /// 登録できなかったときの理由。ほかのアプリが同じキーを取っている場合に出ます。
@@ -24,7 +22,6 @@ final class HotKeyCoordinator: ObservableObject {
     private let globalHotKey: any GlobalHotKeyProtocol
 
     private var overlayPanel: HotKeyOverlayPanel?
-    private var timeoutTask: Task<Void, Never>?
 
     init(
         viewModel: AppRootViewModel,
@@ -177,6 +174,10 @@ final class HotKeyCoordinator: ObservableObject {
         let hostingView = NSHostingView(
             rootView: HotKeyOverlayView(prefix: configuration.prefix, bindings: configuration.bindings)
         )
+        // 明示的に透明にします。既定のままだと、パネルの四角形が背景として残ることがあります。
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+
         let size = hostingView.fittingSize
         let panel = HotKeyOverlayPanel(
             contentRect: NSRect(origin: .zero, size: size),
@@ -189,7 +190,8 @@ final class HotKeyCoordinator: ObservableObject {
         panel.contentView = hostingView
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // ヒント一覧はキーを取らないので、パネル自身が `keyDown` を受け取ります。
@@ -197,27 +199,26 @@ final class HotKeyCoordinator: ObservableObject {
         panel.onKeyDown = { [weak self] keyCode in
             self?.secondStrokePressed(keyCode: keyCode)
         }
+        panel.onResignKey = { [weak self] in
+            self?.dismissOverlay()
+        }
         panel.setFrame(NSRect(origin: Self.overlayOrigin(for: size), size: size), display: true)
         panel.makeKeyAndOrderFront(nil)
 
         overlayPanel = panel
-        timeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.secondStrokeTimeout)
-
-            guard !Task.isCancelled else {
-                return
-            }
-
-            self?.dismissOverlay()
-        }
     }
 
+    /// **先にコールバックを外します。** `close()` は `resignKey` を呼ぶため、
+    /// 付けたままだとここへ戻ってきます。
     private func dismissOverlay() {
-        timeoutTask?.cancel()
-        timeoutTask = nil
-        overlayPanel?.onKeyDown = nil
-        overlayPanel?.close()
+        guard let panel = overlayPanel else {
+            return
+        }
+
         overlayPanel = nil
+        panel.onKeyDown = nil
+        panel.onResignKey = nil
+        panel.close()
     }
 
     /// 画面の中央より少し上。**視線の位置に出す**ためで、Spotlight などと同じ考え方です。
