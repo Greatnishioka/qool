@@ -21,12 +21,14 @@ final class CanvasViewModel: ObservableObject {
     private let unionElementsUseCase: UnionCanvasElementsUseCase
     private let imageStore: CanvasImageStore
     private let importImageUseCase: ImportImageUseCase
+    private let buildCutoutContourUseCase: BuildCutoutContourUseCase
     private let onSave: (Memo) -> Void
 
     init(
         memo: Memo,
         imageStore: CanvasImageStore,
         importImageUseCase: ImportImageUseCase,
+        buildCutoutContourUseCase: BuildCutoutContourUseCase = BuildCutoutContourUseCase(),
         selectionService: CanvasSelectionService = CanvasSelectionService(),
         draftElementBuilder: CanvasDraftElementBuilder = CanvasDraftElementBuilder(),
         moveElementsUseCase: MoveCanvasElementsUseCase = MoveCanvasElementsUseCase(),
@@ -44,6 +46,7 @@ final class CanvasViewModel: ObservableObject {
         self.unionElementsUseCase = unionElementsUseCase
         self.imageStore = imageStore
         self.importImageUseCase = importImageUseCase
+        self.buildCutoutContourUseCase = buildCutoutContourUseCase
         self.onSave = onSave
     }
 
@@ -57,6 +60,39 @@ final class CanvasViewModel: ObservableObject {
         }
 
         return imageStore.image(for: assetID, in: memo.id)
+    }
+
+    /// なぞった点列から輪郭を作り、要素へ反映する。
+    ///
+    /// 点が足りず輪郭にならなければ `false` を返し、**要素は変えません。**
+    /// 元画像と輪郭の両方を残すので、あとからなぞり直せます。
+    @discardableResult
+    func applyCutout(tracePoints: [CGPoint], to elementID: CanvasElement.ID) -> Bool {
+        let contours = buildCutoutContourUseCase(tracePoints: tracePoints)
+        guard !contours.isEmpty else {
+            return false
+        }
+
+        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element.pathContours = contours
+            element.isClosedPath = true
+        }
+        save()
+
+        return true
+    }
+
+    /// 適用前に見た目を確かめるための輪郭。**要素は変えません。**
+    func cutoutPreview(tracePoints: [CGPoint]) -> [CanvasPathContour] {
+        buildCutoutContourUseCase(tracePoints: tracePoints)
+    }
+
+    /// 切り抜きを解除し、元の矩形表示へ戻す。
+    func clearCutout(of elementID: CanvasElement.ID) {
+        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element.pathContours = []
+        }
+        save()
     }
 
     /// ファイルから画像を取り込む。読めない形式なら `false`。

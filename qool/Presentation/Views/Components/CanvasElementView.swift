@@ -65,10 +65,16 @@ struct CanvasElementView: View {
                 .overlay(strokeOverlay(Rectangle()))
         case .imageCutout:
             if let image {
+                // 輪郭がなければ矩形のまま。切り抜き前でも画像は見えます。
+                let cutoutShape = element.pathContours.isEmpty
+                    ? AnyShape(Rectangle())
+                    : AnyShape(MultiContourPathShape(contours: element.pathContours))
+
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
-                    .clipShape(Rectangle())
+                    .clipShape(cutoutShape)
+                    .overlay(strokeOverlay(cutoutShape))
             } else {
                 CutoutShape()
                     .fill(element.fillColor.swiftUIColor.opacity(0.75))
