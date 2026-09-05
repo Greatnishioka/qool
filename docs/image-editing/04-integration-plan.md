@@ -194,8 +194,8 @@ StarWindow は macOS のデスクトップ性能を前提に、重い処理を�
 
 ### 第 3 段階: Mac のメモとして使えるようにする（MVP 必須）
 
-7. **任意形状のフローティングメモ**
-   `CutoutWindowManager` / `CutoutMemoWindow` / `CutoutHostingView` を移植（[4.8](#48-mvp-のコアとして移植するもの)）
+7. ~~**任意形状のフローティングメモ**~~ **完了。**
+   `FloatingMemoWindowManager` / `FloatingMemoWindow` / `ContourHostingView` として移植（[4.8](#48-mvp-のコアとして移植するもの)）
 8. **グローバルホットキーでの呼び出し**
    StarWindow にも qool にも存在しない、**新規に設計が必要な唯一の MVP 要素**。
    要件（ユーザーがキーを設定できること / 設定 UI を自作できること）と実装方式の候補は
@@ -222,12 +222,26 @@ StarWindow は macOS のデスクトップ性能を前提に、重い処理を�
 | `CutoutHostingView` | **輪郭多角形の内側でしかヒットテストを通さない**。外側のクリックは背面のアプリへ抜ける |
 | `CutoutMemoWindowView` | 画像をマスクして表示し、`ShapedTextEditor` で本文を任意形状に流し込む |
 
-qool へ持ってくるときの差分:
+qool へ持ってくるときの差分（**移植時に決めたこと**）:
 
-- StarWindow は**画像 1 枚 = ウィンドウ 1 つ**だが、qool は**キャンバス（図形 + 複数の切り抜き画像）
-  = ウィンドウ 1 つ**になる。マスク輪郭は個々の切り抜きではなく、キャンバス全体の合成形状から作る
-- キャンバスの Union 結果（`pathContours`）をそのままウィンドウ形状に使えると筋がよい
-- ウィンドウ位置・サイズの永続化が要る（StarWindow は開くたびに画面中央から 24pt ずつずらすだけ）
+- **形はキャンバス全体の合成から作る。** StarWindow は画像 1 枚の輪郭をそのまま使っていたが、
+  qool のウィンドウはキャンバス 1 枚分。[`BuildFloatingMemoOutlineUseCase`](../../qool/Application/UseCases/Canvas/BuildFloatingMemoOutlineUseCase.swift)
+  が全要素を `iOverlay` で合成する。要素 → 多角形の変換は
+  [`CanvasElementPolygons`](../../qool/Domain/Services/CanvasElementPolygons.swift) に集約し、
+  Union（図形の合成）と共有している
+- **線とテキストは `frame` の矩形で代用する。** 塗る面を持たないが、掴めないと動かせないため
+- **表示専用にした。** 本文を任意形状へ流し込む `ShapedTextEditor` は移植していない。
+  qool ではテキストはキャンバス上の `.text` 要素が担う（[4.9](#49-移植しないもの)）。
+  ウィンドウ上での編集は第 4 段階 11「テキスト表示域」として残す
+- **`Memo.floatingOrigin` が唯一の正。** `nil` が「貼っていない」を表し、
+  ウィンドウの開閉は [`FloatingMemoPresenter`](../../qool/Presentation/Support/FloatingMemoPresenter.swift)
+  が一覧の変化に追従して行う。**貼っているかどうかを別のフラグで持つと保存内容と画面が食い違う**
+- **位置の保存では `updatedAt` を触らない**（[`UpdateFloatingOriginUseCase`](../../qool/Application/UseCases/Memo/UpdateFloatingOriginUseCase.swift)）。
+  ウィンドウをドラッグしただけで一覧の並び（更新日時の降順）が変わってしまうため
+- **大きさはキャンバス座標をそのまま使わない。** 縦横比だけを保って 120〜360pt に収める。
+  縦横比が崩れると、**描いた形とクリックの通る範囲がずれる**
+- 「編集」の導線は `openWindow` が View からしか呼べないため、
+  [`MenuBarLabel`](../../qool/Presentation/Views/Components/MenuBarLabel.swift)（パネルを閉じていても生きている）が要求を受ける
 
 ## 4.9 移植しないもの
 

@@ -4,6 +4,7 @@ import SwiftUI
 /// メモパネル。メニューバーから開く、アプリの中心となる画面。
 struct MemoPanelView: View {
     @ObservedObject var viewModel: AppRootViewModel
+    let floatingMemos: FloatingMemoPresenter
     @Environment(\.openWindow) private var openWindow
 
     /// 削除は取り消せないので、確認を挟みます。
@@ -143,6 +144,19 @@ struct MemoPanelView: View {
             .buttonStyle(.plain)
 
             Menu {
+                if memo.floatingOrigin == nil {
+                    Button("デスクトップに貼る") {
+                        floatingMemos.pin(memo)
+                    }
+                    .disabled(!floatingMemos.canPin(memo))
+                } else {
+                    Button("デスクトップからはがす") {
+                        floatingMemos.unpin(memo.id)
+                    }
+                }
+
+                Divider()
+
                 Button("削除", role: .destructive) {
                     memoPendingDeletion = memo
                 }

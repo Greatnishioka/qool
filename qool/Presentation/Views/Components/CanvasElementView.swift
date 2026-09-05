@@ -198,37 +198,6 @@ private struct BezierPathShape: Shape {
     }
 }
 
-private struct MultiContourPathShape: Shape {
-    let contours: [CanvasPathContour]
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-
-        for contour in contours where !contour.points.isEmpty {
-            let cgPoints = contour.points.map { point in
-                CGPoint(
-                    x: rect.minX + rect.width * CGFloat(point.x),
-                    y: rect.minY + rect.height * CGFloat(point.y)
-                )
-            }
-
-            guard let firstPoint = cgPoints.first else {
-                continue
-            }
-
-            path.move(to: firstPoint)
-            for point in cgPoints.dropFirst() {
-                path.addLine(to: point)
-            }
-            if contour.isClosed {
-                path.closeSubpath()
-            }
-        }
-
-        return path
-    }
-}
-
 private struct PathPointMarkers: View {
     let points: [NormalizedPoint]
 

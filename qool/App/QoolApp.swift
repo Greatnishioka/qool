@@ -9,10 +9,13 @@ struct QoolApp: App {
     var body: some Scene {
         // メニューバー項目。Dock には出さない（Info.plist の LSUIElement）。
         MenuBarExtra {
-            MemoPanelView(viewModel: appDelegate.viewModel)
-                .preferredColorScheme(.light)
+            MemoPanelView(
+                viewModel: appDelegate.viewModel,
+                floatingMemos: appDelegate.floatingMemos
+            )
+            .preferredColorScheme(.light)
         } label: {
-            Image(systemName: "square.on.square.dashed")
+            MenuBarLabel(viewModel: appDelegate.viewModel)
         }
         .menuBarExtraStyle(.window)
 

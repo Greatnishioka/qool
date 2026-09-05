@@ -1,4 +1,5 @@
 import Combine
+import CoreGraphics
 import Foundation
 
 @MainActor
@@ -17,10 +18,15 @@ final class AppRootViewModel: ObservableObject {
     /// 一覧を読み込めなかった。**「メモが 0 件」と区別する**ために持ちます。
     @Published private(set) var didFailToLoad = false
 
+    /// キャンバスを開いてほしいメモ。**フローティングメモからの導線に使います。**
+    /// `openWindow` は View からしか呼べないため、要求だけをここに置いて View 側が実行します。
+    @Published private(set) var canvasRequest: Memo.ID?
+
     private let loadMemosUseCase: LoadMemosUseCase
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
     private let deleteMemoUseCase: DeleteMemoUseCase
+    private let updateFloatingOriginUseCase: UpdateFloatingOriginUseCase
 
     /// キャンバスへ引き渡すもの。画像は `Memo` に含めないため、別経路で解決します。
     let imageStore: CanvasImageStore
@@ -35,6 +41,7 @@ final class AppRootViewModel: ObservableObject {
         createMemoUseCase: CreateMemoUseCase,
         saveMemoUseCase: SaveMemoUseCase,
         deleteMemoUseCase: DeleteMemoUseCase,
+        updateFloatingOriginUseCase: UpdateFloatingOriginUseCase,
         flushMemosUseCase: FlushMemosUseCase,
         observeWriteStatesUseCase: ObserveWriteStatesUseCase,
         imageStore: CanvasImageStore,
@@ -45,6 +52,7 @@ final class AppRootViewModel: ObservableObject {
         self.createMemoUseCase = createMemoUseCase
         self.saveMemoUseCase = saveMemoUseCase
         self.deleteMemoUseCase = deleteMemoUseCase
+        self.updateFloatingOriginUseCase = updateFloatingOriginUseCase
         self.imageStore = imageStore
         self.importImageUseCase = importImageUseCase
         self.flushMemosUseCase = flushMemosUseCase
@@ -98,6 +106,7 @@ final class AppRootViewModel: ObservableObject {
             createMemoUseCase: CreateMemoUseCase(repository: repository),
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
             deleteMemoUseCase: DeleteMemoUseCase(repository: repository),
+            updateFloatingOriginUseCase: UpdateFloatingOriginUseCase(repository: repository),
             flushMemosUseCase: FlushMemosUseCase(repository: repository),
             observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
             imageStore: CanvasImageStore(repository: imageRepository),
@@ -171,6 +180,34 @@ final class AppRootViewModel: ObservableObject {
             selectedMemo = memo
             apply(memo)
         }
+    }
+
+    /// デスクトップに貼る位置を書き換える。`nil` ではがします。
+    func updateFloatingOrigin(_ origin: CGPoint?, for memoID: Memo.ID) async {
+        guard let memo = memos.first(where: { $0.id == memoID }), memo.floatingOrigin != origin else {
+            return
+        }
+
+        do {
+            let savedMemo = try await updateFloatingOriginUseCase(memo, to: origin)
+            apply(savedMemo)
+
+            if selectedMemo?.id == savedMemo.id {
+                selectedMemo?.floatingOrigin = origin
+            }
+        } catch {
+            // 書けなくても画面上は貼ったままにします。失敗は状態表示が伝えます。
+        }
+    }
+
+    func requestCanvas(for memoID: Memo.ID) {
+        selectedMemo = memos.first { $0.id == memoID }
+        canvasRequest = memoID
+    }
+
+    /// 開き終えたら View 側が呼びます。**同じメモを続けて開けるように毎回戻します。**
+    func clearCanvasRequest() {
+        canvasRequest = nil
     }
 
     func updateAdjustment(_ adjustment: ImageAdjustment) {

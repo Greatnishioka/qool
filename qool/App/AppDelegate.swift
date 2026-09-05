@@ -8,12 +8,20 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let viewModel = AppRootViewModel.bootstrap()
 
+    /// デスクトップに貼ったメモ。**遅延生成なのは `viewModel` に依存するためです。**
+    private(set) lazy var floatingMemos = FloatingMemoPresenter(viewModel: viewModel)
+
     /// 終了要求の多重実行を防ぐ。`reply` は必ず 1 回だけ呼ぶ必要があります。
     private var isTerminating = false
 
     /// 書き込みを待つ上限。ファイル I/O が返らない場合（ネットワークボリュームなど）、
     /// **これがないと `.terminateLater` のまま永久に終了できなくなります。**
     private static let flushTimeout = Duration.seconds(5)
+
+    /// 前回貼ってあったメモを貼り直します。
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        floatingMemos.start()
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isTerminating else {
