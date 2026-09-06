@@ -27,8 +27,8 @@ struct QoolApp: App {
         }
         .defaultSize(width: 1000, height: 700)
 
-        Window("ホットキーの設定", id: HotKeySettingsView.windowID) {
-            HotKeySettingsView(hotKeys: appDelegate.hotKeys)
+        Window("qool の設定", id: SettingsView.windowID) {
+            SettingsView(hotKeys: appDelegate.hotKeys, settings: appDelegate.viewModel.settings)
                 .preferredColorScheme(.light)
         }
         .windowResizability(.contentSize)

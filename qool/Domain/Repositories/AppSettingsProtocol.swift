@@ -6,6 +6,9 @@
 protocol AppSettingsProtocol: AnyObject {
     var hotKeyConfiguration: HotKeyConfiguration { get set }
 
+    /// 切り抜きの手直しで戻せる手数。**履歴そのものは保存しません**（開いている間だけメモリに持つ）。
+    var editHistoryLimit: Int { get set }
+
     /// `⌃⇧Q → F` で出すメモ。**メモ側にフラグを持たせていないのは、
     /// 付け替えのたびに旧メインの書き込みも要るため**です。指すのは 1 つなのでここに置きます。
     var mainMemoID: Memo.ID? { get set }

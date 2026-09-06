@@ -28,6 +28,9 @@ final class AppRootViewModel: ObservableObject {
     private let deleteMemoUseCase: DeleteMemoUseCase
     private let updateFloatingOriginUseCase: UpdateFloatingOriginUseCase
 
+    /// メモとは別に持つ設定。**ホットキーと共有します**（同じ値を 2 箇所で持たないため）。
+    let settings: any AppSettingsProtocol
+
     /// キャンバスへ引き渡すもの。画像は `Memo` に含めないため、別経路で解決します。
     let imageStore: CanvasImageStore
     let importImageUseCase: ImportImageUseCase
@@ -45,6 +48,7 @@ final class AppRootViewModel: ObservableObject {
         updateFloatingOriginUseCase: UpdateFloatingOriginUseCase,
         flushMemosUseCase: FlushMemosUseCase,
         observeWriteStatesUseCase: ObserveWriteStatesUseCase,
+        settings: any AppSettingsProtocol,
         imageStore: CanvasImageStore,
         importImageUseCase: ImportImageUseCase,
         pruneImageAssetsUseCase: PruneImageAssetsUseCase,
@@ -55,6 +59,7 @@ final class AppRootViewModel: ObservableObject {
         self.saveMemoUseCase = saveMemoUseCase
         self.deleteMemoUseCase = deleteMemoUseCase
         self.updateFloatingOriginUseCase = updateFloatingOriginUseCase
+        self.settings = settings
         self.imageStore = imageStore
         self.importImageUseCase = importImageUseCase
         self.pruneImageAssetsUseCase = pruneImageAssetsUseCase
@@ -92,17 +97,18 @@ final class AppRootViewModel: ObservableObject {
 
     /// 実アプリ用の組み立て。保存先はディスク。テストやプレビューでは
     /// `InMemoryMemoRepositoryInfrastructure` を渡した `bootstrap(repository:)` を使います。
-    static func bootstrap() -> AppRootViewModel {
+    static func bootstrap(settings: any AppSettingsProtocol) -> AppRootViewModel {
         // まとめ書きを挟む。flush はアプリ側で呼ぶ必要があります。
         let repository = DebouncedMemoRepositoryInfrastructure(wrapping: FileMemoRepositoryInfrastructure())
 
-        return bootstrap(repository: repository, monitor: repository)
+        return bootstrap(repository: repository, monitor: repository, settings: settings)
     }
 
     static func bootstrap(
         repository: any MemoRepositoryProtocol,
         monitor: (any MemoWriteMonitoringProtocol)? = nil,
-        imageRepository: any ImageAssetRepositoryProtocol = FileImageAssetRepositoryInfrastructure()
+        imageRepository: any ImageAssetRepositoryProtocol = FileImageAssetRepositoryInfrastructure(),
+        settings: any AppSettingsProtocol = UserDefaultsAppSettingsInfrastructure()
     ) -> AppRootViewModel {
         AppRootViewModel(
             loadMemosUseCase: LoadMemosUseCase(repository: repository),
@@ -112,6 +118,7 @@ final class AppRootViewModel: ObservableObject {
             updateFloatingOriginUseCase: UpdateFloatingOriginUseCase(repository: repository),
             flushMemosUseCase: FlushMemosUseCase(repository: repository),
             observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
+            settings: settings,
             imageStore: CanvasImageStore(repository: imageRepository),
             importImageUseCase: ImportImageUseCase(repository: imageRepository),
             pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: imageRepository),

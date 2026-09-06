@@ -9,6 +9,9 @@ struct CanvasView: View {
     /// 直近のキャンバスの大きさ。ツールバーからの取り込みは中央に置くため、これが要ります。
     @State private var canvasSize: CGSize = .zero
 
+    /// 切り抜きシートで戻せる手数。**ルートを保持しないため、開いた時点の値を写します。**
+    private let historyLimit: Int
+
     /// 画像を持つ要素が 1 つだけ選ばれているときにだけ切り抜けます。
     private var canCutOutSelection: Bool {
         guard let element = viewModel.selectedElement else {
@@ -25,6 +28,7 @@ struct CanvasView: View {
     /// ルートの ViewModel は保存の宛先としてしか使わないため、監視しません。
     /// `@ObservedObject` にすると、一覧が更新されるたびにキャンバス全体が再評価されます。
     init(memo: Memo, rootViewModel: AppRootViewModel) {
+        historyLimit = rootViewModel.settings.editHistoryLimit
         _viewModel = StateObject(
             wrappedValue: CanvasViewModel(
                 memo: memo,
@@ -90,7 +94,8 @@ struct CanvasView: View {
                     makeCandidates: viewModel.cutoutCandidates,
                     onApply: { viewModel.applyCutout(contours: $0, to: element.id) },
                     onClear: { viewModel.clearCutout(of: element.id) },
-                    onDismiss: { cutoutTarget = nil }
+                    onDismiss: { cutoutTarget = nil },
+                    historyLimit: historyLimit
                 )
             }
         }

@@ -114,6 +114,15 @@ struct ContourEditingTests {
         #expect(edit(original, combining: [[CGPoint(x: 0.1, y: 0.1)]], mode: .subtract) == original)
     }
 
+    /// 消しゴムは極小の欠片を残します。見えないものが履歴と描画を重くするだけなので捨てます。
+    @Test func 極小の欠片は捨てる() {
+        let speck = square(0.5, 0.5, 0.001)
+
+        #expect(edit([], combining: [speck], mode: .add).isEmpty)
+        // 見える大きさなら残ります。
+        #expect(!edit([], combining: [square(0.5, 0.5, 0.01)], mode: .add).isEmpty)
+    }
+
     // MARK: - ブラシの形
 
     @Test func 点が2つのなぞりはカプセル1つになる() {

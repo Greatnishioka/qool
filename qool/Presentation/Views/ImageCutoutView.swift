@@ -6,12 +6,17 @@ import SwiftUI
 /// **正確になぞる必要はありません。** なぞりは `ContourSmoother` が整えるための下地で、
 /// トゲが取れ、直線は直線に寄り、角は残ります。
 ///
-/// 輪郭候補の自動抽出（被写体マスクなど）はまだ移植していないため、
-/// ここで扱うのは**手描きのなぞりだけ**です。
+/// なぞって決めたあとは、ペン・消しゴム・投げ縄で手直しできます。
+/// **手直しはラスターマスクを使わず、多角形の合成で行います**
+/// （[方式の判断](../../../docs/image-editing/04-integration-plan.md)）。
 struct ImageCutoutView: View {
     /// 前の点からこれ以下しか動いていない点は捨てる（正規化距離）。
     /// 間引かないと 1 回のドラッグで数千点になり、平滑化が重くなります。
     private static let minimumTraceSpacing: CGFloat = 0.006
+
+    /// ブラシの太さ（表示ポイント）。正規化してから合成に渡します。
+    private static let brushSizeRange: ClosedRange<CGFloat> = 4...80
+    private static let defaultBrushSize: CGFloat = 24
 
     let image: NSImage
     let existingContours: [CanvasPathContour]
@@ -19,6 +24,8 @@ struct ImageCutoutView: View {
     let onApply: ([CanvasPathContour]) -> Void
     let onClear: () -> Void
     let onDismiss: () -> Void
+    /// 戻せる手数。設定で変えられます。
+    let historyLimit: Int
 
     @State private var tracePoints: [CGPoint] = []
     /// 手で選んだ候補。未選択なら推奨を使います。
@@ -31,6 +38,17 @@ struct ImageCutoutView: View {
     /// 抽出中。Vision の推論が入るため、待ち時間が見えるようにします。
     @State private var isExtracting = false
 
+    @State private var tool: CutoutSheetTool = .trace
+    @State private var brushSize = ImageCutoutView.defaultBrushSize
+    /// 手直し中のなぞり。指を離した時点でまとめて合成します。
+    @State private var strokePoints: [CGPoint] = []
+    /// **`nil` は「まだ手直ししていない」を表します。** 手直しを始めた時点で、
+    /// そのときの輪郭を土台にして積み始めます。
+    @State private var history: ContourEditHistory?
+
+    private let editContour = EditCutoutContourUseCase()
+    private let brushOutline = BrushStrokeOutline()
+
     private var selectedCandidate: CutoutCandidate? {
         if let selectedCandidateID, let picked = candidates.first(where: { $0.id == selectedCandidateID }) {
             return picked
@@ -40,12 +58,20 @@ struct ImageCutoutView: View {
     }
 
     private var previewContours: [CanvasPathContour] {
-        tracePoints.isEmpty ? existingContours : (selectedCandidate?.contours ?? [])
+        if let history {
+            return history.current
+        }
+
+        return tracePoints.isEmpty ? existingContours : (selectedCandidate?.contours ?? [])
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+
+            Divider()
+
+            toolBar
 
             Divider()
 
@@ -94,6 +120,52 @@ struct ImageCutoutView: View {
             : "候補を選び直せます。やり直すには「なぞり直す」"
     }
 
+    private var toolBar: some View {
+        HStack(spacing: 12) {
+            Picker("道具", selection: $tool) {
+                ForEach(CutoutSheetTool.allCases) { candidate in
+                    Label(candidate.displayName, systemImage: candidate.systemImage).tag(candidate)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 420)
+
+            if tool.usesBrushSize {
+                HStack(spacing: 6) {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
+                    Slider(value: $brushSize, in: Self.brushSizeRange)
+                        .frame(width: 110)
+                    Text("\(Int(brushSize))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, alignment: .trailing)
+                }
+            }
+
+            Spacer()
+
+            Button {
+                history?.undo()
+            } label: {
+                Label("元に戻す", systemImage: "arrow.uturn.backward")
+            }
+            .disabled(history?.canUndo != true)
+
+            Button {
+                history?.redo()
+            } label: {
+                Label("やり直す", systemImage: "arrow.uturn.forward")
+            }
+            .disabled(history?.canRedo != true)
+        }
+        .labelStyle(.iconOnly)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
     private var preview: some View {
         GeometryReader { proxy in
             let rect = imageRect(in: proxy.size)
@@ -121,12 +193,20 @@ struct ImageCutoutView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        appendTracePoint(value.location, in: rect)
+                        if tool == .trace {
+                            appendTracePoint(value.location, in: rect)
+                        } else {
+                            appendStrokePoint(value.location, in: rect)
+                        }
                     }
                     .onEnded { _ in
-                        // なぞり終わりにまとめて抽出します。
-                        selectedCandidateID = nil
-                        extract()
+                        if tool == .trace {
+                            // なぞり終わりにまとめて抽出します。
+                            selectedCandidateID = nil
+                            extract()
+                        } else {
+                            applyStroke(in: rect)
+                        }
                     }
             )
         }
@@ -147,6 +227,20 @@ struct ImageCutoutView: View {
         if tracePoints.count >= 2 {
             tracePath(in: rect)
                 .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
+                .allowsHitTesting(false)
+        }
+
+        if strokePoints.count >= 2 {
+            // 足すか引くかで色を変えます。押している間、どちらの操作かが分かるようにします。
+            strokePath(in: rect)
+                .stroke(
+                    (tool.editMode == .subtract ? Color.red : Color.green).opacity(0.55),
+                    style: StrokeStyle(
+                        lineWidth: tool.usesBrushSize ? brushSize : 1.5,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
                 .allowsHitTesting(false)
         }
     }
@@ -205,12 +299,15 @@ struct ImageCutoutView: View {
 
             Spacer()
 
-            Button("なぞり直す") {
+            Button("やり直す") {
                 tracePoints = []
                 selectedCandidateID = nil
                 candidates = []
+                // 土台が変わるので手直しも捨てます。積んだままだと古い形へ戻せてしまいます。
+                history = nil
+                tool = .trace
             }
-            .disabled(tracePoints.isEmpty)
+            .disabled(tracePoints.isEmpty && history == nil)
 
             Button("適用") {
                 onApply(selectedCandidate?.contours ?? [])
@@ -237,6 +334,50 @@ struct ImageCutoutView: View {
             candidates = extracted
             isExtracting = false
         }
+    }
+
+    // MARK: - 手直し
+
+    /// 手直しのなぞりは画像の外も拾います。**輪郭の外から入ってくる操作を切らない**ためです。
+    /// はみ出した分は合成時に落ちます。
+    private func appendStrokePoint(_ location: CGPoint, in rect: CGRect) {
+        guard rect.width > 0, rect.height > 0 else {
+            return
+        }
+
+        let point = CGPoint(
+            x: (location.x - rect.minX) / rect.width,
+            y: (location.y - rect.minY) / rect.height
+        )
+
+        if let lastPoint = strokePoints.last,
+           hypot(point.x - lastPoint.x, point.y - lastPoint.y) <= Self.minimumTraceSpacing {
+            return
+        }
+
+        strokePoints.append(point)
+    }
+
+    /// 指を離した時点で 1 回だけ合成します。
+    ///
+    /// **ドラッグ中は合成しません。** 1 手が 11〜19ms かかるため（実測）、
+    /// 毎フレーム走らせると指に追従しなくなります。
+    private func applyStroke(in rect: CGRect) {
+        let stroke = strokePoints
+        strokePoints = []
+
+        guard let mode = tool.editMode, !stroke.isEmpty, rect.width > 0 else {
+            return
+        }
+
+        let polygons: [[CGPoint]] = tool.usesBrushSize
+            ? brushOutline.polygons(for: stroke, radius: brushSize / 2 / rect.width)
+            : [stroke]
+
+        // 手直しを始めた時点の輪郭が土台になります。
+        var editing = history ?? ContourEditHistory(previewContours, limit: historyLimit)
+        editing.record(editContour(editing.current, combining: polygons, mode: mode))
+        history = editing
     }
 
     // MARK: - 座標
@@ -297,12 +438,24 @@ struct ImageCutoutView: View {
     }
 
     private func tracePath(in rect: CGRect) -> Path {
+        polyline(tracePoints, in: rect)
+    }
+
+    private func strokePath(in rect: CGRect) -> Path {
+        polyline(strokePoints, in: rect)
+    }
+
+    private func polyline(_ normalizedPoints: [CGPoint], in rect: CGRect) -> Path {
         var path = Path()
-        let points = tracePoints.map { point in
+        let points = normalizedPoints.map { point in
             CGPoint(x: rect.minX + rect.width * point.x, y: rect.minY + rect.height * point.y)
         }
 
-        path.move(to: points[0])
+        guard let first = points.first else {
+            return path
+        }
+
+        path.move(to: first)
         for point in points.dropFirst() {
             path.addLine(to: point)
         }

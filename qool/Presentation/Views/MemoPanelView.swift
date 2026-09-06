@@ -213,8 +213,8 @@ struct MemoPanelView: View {
 
     private var footer: some View {
         HStack {
-            Button("ホットキー") {
-                openWindow(id: HotKeySettingsView.windowID)
+            Button("設定") {
+                openWindow(id: SettingsView.windowID)
                 NSApp.activate()
             }
             .buttonStyle(.plain)

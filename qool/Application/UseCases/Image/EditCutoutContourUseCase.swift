@@ -7,7 +7,17 @@ nonisolated struct EditCutoutContourUseCase {
     /// 面にならない多角形は捨てます。
     private static let minimumPointCount = 3
 
+    /// これより小さい形は捨てます（正規化座標での面積）。
+    ///
+    /// **消しゴムは極小の欠片を残します。** 実測で 500 手のあと輪郭が 46 本まで増えました。
+    /// 0.003 四方は 320pt 表示で 1pt 弱なので、見えないものが履歴と描画を重くしているだけです。
+    ///
+    /// **`iOverlay` の `minArea` は使いません。** 内部の整数座標に換算されるため、
+    /// 正規化座標（0〜1）で渡すと桁が合わず、まともな形まで消えました。自分で測ります。
+    private static let minimumShapeArea: CGFloat = 0.00001
+
     private let simplifier = ContourSimplifier()
+    private let geometry = ContourGeometry()
 
     init() {}
 
@@ -62,6 +72,7 @@ nonisolated struct EditCutoutContourUseCase {
             .flatMap { shape in shape }
             .map { path in simplifier.simplified(path) }
             .filter { $0.count >= Self.minimumPointCount }
+            .filter { geometry.polygonArea($0) >= Self.minimumShapeArea }
             .map { path in
                 CanvasPathContour(
                     points: path.map { NormalizedPoint(x: Double($0.x), y: Double($0.y)) },

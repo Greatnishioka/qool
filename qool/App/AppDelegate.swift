@@ -6,7 +6,11 @@ import AppKit
 /// `willTerminateNotification` では非同期を待てず、セマフォ待機は MainActor を塞ぎます。
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let viewModel = AppRootViewModel.bootstrap()
+    /// **設定の実体は 1 つだけ作ります。** ホットキーと切り抜きの履歴で同じ値を読むため、
+    /// 別々に作ると片方の変更がもう片方に届きません。
+    private let settings = UserDefaultsAppSettingsInfrastructure()
+
+    private(set) lazy var viewModel = AppRootViewModel.bootstrap(settings: settings)
 
     /// デスクトップに貼ったメモ。**遅延生成なのは `viewModel` に依存するためです。**
     private(set) lazy var floatingMemos = FloatingMemoPresenter(viewModel: viewModel)
@@ -14,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) lazy var hotKeys = HotKeyCoordinator(
         viewModel: viewModel,
         floatingMemos: floatingMemos,
-        settings: UserDefaultsAppSettingsInfrastructure(),
+        settings: settings,
         globalHotKey: CarbonGlobalHotKeyInfrastructure()
     )
 

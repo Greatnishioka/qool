@@ -9,6 +9,7 @@ final class UserDefaultsAppSettingsInfrastructure: AppSettingsProtocol {
     private enum StorageKey {
         static let hotKeyConfiguration = "hotKeyConfiguration"
         static let mainMemoID = "mainMemoID"
+        static let editHistoryLimit = "editHistoryLimit"
     }
 
     private let defaults: UserDefaults
@@ -34,6 +35,22 @@ final class UserDefaultsAppSettingsInfrastructure: AppSettingsProtocol {
 
             defaults.set(data, forKey: StorageKey.hotKeyConfiguration)
         }
+    }
+
+    /// **未設定と 0 を区別します。** `UserDefaults.integer` は未設定でも 0 を返すため、
+    /// そのままだと既定値へ落とせません。
+    var editHistoryLimit: Int {
+        get {
+            guard defaults.object(forKey: StorageKey.editHistoryLimit) != nil else {
+                return ContourEditHistory.defaultLimit
+            }
+
+            return min(
+                max(defaults.integer(forKey: StorageKey.editHistoryLimit), ContourEditHistory.limitRange.lowerBound),
+                ContourEditHistory.limitRange.upperBound
+            )
+        }
+        set { defaults.set(newValue, forKey: StorageKey.editHistoryLimit) }
     }
 
     var mainMemoID: Memo.ID? {
