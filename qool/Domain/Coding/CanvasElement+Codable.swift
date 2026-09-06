@@ -23,6 +23,7 @@ nonisolated extension CanvasElement {
         case isClosedPath
         case imageAssetID
         case imageAdjustment
+        case imageSource
         case unionSourceElements
     }
 
@@ -55,6 +56,7 @@ nonisolated extension CanvasElement {
                 ImageAdjustment.self,
                 forKey: .imageAdjustment
             ) ?? .default,
+            imageSource: try container.decodeIfPresent(CutoutImageSource.self, forKey: .imageSource),
             unionSourceElements: try container.decodeIfPresent(
                 [CanvasElementSnapshot].self,
                 forKey: .unionSourceElements
@@ -83,6 +85,7 @@ nonisolated extension CanvasElement {
         try container.encode(isClosedPath, forKey: .isClosedPath)
         try container.encodeIfPresent(imageAssetID, forKey: .imageAssetID)
         try container.encode(imageAdjustment, forKey: .imageAdjustment)
+        try container.encodeIfPresent(imageSource, forKey: .imageSource)
         try container.encode(unionSourceElements, forKey: .unionSourceElements)
     }
 }

@@ -201,6 +201,61 @@ struct CanvasCodingTests {
     }
 
     /// 画像のキーがない既存のメモも読めます。プロパティの追加でファイルが壊れないことの確認。
+    /// **`imageSource` が落ちると、切り抜きを解除しても元画像へ戻れません。**
+    /// さらに掃除が「参照されていない」と判断して元画像のファイルまで消します。
+    @Test func 切り詰め前の画像の参照が往復する() throws {
+        let assetID = UUID()
+        let element = CanvasElement(
+            kind: .imageCutout,
+            frame: CGRect(x: 0, y: 0, width: 100, height: 100),
+            fillColor: .clear,
+            imageAssetID: UUID(),
+            imageSource: CutoutImageSource(
+                assetID: assetID,
+                cropRect: CGRect(x: 0.2, y: 0.25, width: 0.5, height: 0.4)
+            )
+        )
+
+        let data = try JSONEncoder().encode(element)
+        let decoded = try JSONDecoder().decode(CanvasElement.self, from: data)
+
+        #expect(decoded.imageSource?.assetID == assetID)
+        #expect(decoded.imageSource?.cropRect == element.imageSource?.cropRect)
+    }
+
+    /// 座標は人が読める平たいキーで保存します。
+    @Test func 切り詰め前の画像の範囲は平たいキーで保存される() throws {
+        let element = CanvasElement(
+            kind: .imageCutout,
+            frame: .zero,
+            fillColor: .clear,
+            imageSource: CutoutImageSource(
+                assetID: UUID(),
+                cropRect: CGRect(x: 0.2, y: 0.25, width: 0.5, height: 0.4)
+            )
+        )
+
+        let data = try JSONEncoder().encode(element)
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let source = try #require(json["imageSource"] as? [String: Any])
+
+        #expect(source["x"] as? Double == 0.2)
+        #expect(source["width"] as? Double == 0.5)
+    }
+
+    @Test func 切り詰めていない要素にはキーが出ない() throws {
+        let element = CanvasElement(kind: .rectangle, frame: .zero, fillColor: .paper)
+
+        let data = try JSONEncoder().encode(element)
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+
+        #expect(json["imageSource"] == nil)
+    }
+
     @Test func 画像のキーがなくても読める() throws {
         let json = #"""
         {
