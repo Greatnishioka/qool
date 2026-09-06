@@ -13,21 +13,29 @@ nonisolated struct CanvasElementPolygons {
     private static let minimumCurveSamples = 10
     private static let maximumCurveSamples = 32
 
+    private let contourPadding = ContourPadding()
+    private let geometry = ContourGeometry()
+
     init() {}
 
     /// 塗られている部分の輪郭。線・テキスト・輪郭のない画像は空になります。
-    func filled(for element: CanvasElement) -> [[CGPoint]] {
-        rotated(unrotatedFilled(for: element), by: element)
+    ///
+    /// - Parameter includingAdjustment: 画像の余白とぼかしで広がった分を含めるか。
+    ///   **ウィンドウの形には含め、紙の色を敷く形には含めません。**
+    ///   含めた形に紙を敷くと、ぼかした縁まで塗り潰されて硬い縁になります。
+    func filled(for element: CanvasElement, includingAdjustment: Bool = true) -> [[CGPoint]] {
+        rotated(unrotatedFilled(for: element, includingAdjustment: includingAdjustment), by: element)
     }
 
-    private func unrotatedFilled(for element: CanvasElement) -> [[CGPoint]] {
+    private func unrotatedFilled(for element: CanvasElement, includingAdjustment: Bool) -> [[CGPoint]] {
         switch element.kind {
         case .rectangle:
             return [roundedRectanglePoints(for: element)]
         case .path:
             return pathPolygons(for: element)
         case .imageCutout:
-            return contourPolygons(of: element.pathContours, in: element.frame)
+            let contours = includingAdjustment ? paddedContours(of: element) : element.pathContours
+            return contourPolygons(of: contours, in: element.frame)
         case .line, .text:
             return []
         }
@@ -36,8 +44,8 @@ nonisolated struct CanvasElementPolygons {
     /// 画面上で要素が占める範囲の輪郭。`filled` が空なら `frame` の矩形で代用します。
     ///
     /// **線やテキストも掴めないと困る**ため、フローティングウィンドウの形にはこちらを使います。
-    func outline(for element: CanvasElement) -> [[CGPoint]] {
-        let polygons = filled(for: element)
+    func outline(for element: CanvasElement, includingAdjustment: Bool = true) -> [[CGPoint]] {
+        let polygons = filled(for: element, includingAdjustment: includingAdjustment)
         guard polygons.isEmpty else {
             return polygons
         }
@@ -82,6 +90,47 @@ nonisolated struct CanvasElementPolygons {
         }
 
         return [sampledPathPoints(for: element)].filter { $0.count >= 3 }
+    }
+
+    /// 余白とぼかしで広がった分まで含めた輪郭。
+    ///
+    /// **描画と同じだけ膨らませないと、ウィンドウの形が絵より小さくなります。**
+    /// 描画側は輪郭を太い線でなぞって膨らませており
+    /// （[CanvasElementView](../../Presentation/Views/Components/CanvasElementView.swift) の `cutoutMask`）、
+    /// こちらが輪郭のままだと、はみ出した余白とぼかしが切り落とされます。
+    ///
+    /// **穴は逆向きに縮めます。** 外周と同じ向きへ押し出すと穴まで広がり、
+    /// 余白を足したのに抜けが大きくなります。
+    private func paddedContours(of element: CanvasElement) -> [CanvasPathContour] {
+        let adjustment = element.imageAdjustment
+        // 外側ぼかしは、ぼけた分だけ形が外へ出ます。内側ぼかしは輪郭の内側で完結します。
+        let outset = CGFloat(adjustment.padding + (adjustment.blurDirection == .inward ? 0 : adjustment.blur))
+
+        guard outset > 0, element.frame.width > 0, element.frame.height > 0 else {
+            return element.pathContours
+        }
+
+        let areas = element.pathContours.map { contour in
+            geometry.signedArea(contour.points.map { CGPoint(x: $0.x, y: $0.y) })
+        }
+
+        guard let outerArea = areas.max(by: { abs($0) < abs($1) }), outerArea != 0 else {
+            return element.pathContours
+        }
+
+        return zip(element.pathContours, areas).map { contour, area in
+            let amount = (area > 0) == (outerArea > 0) ? outset : -outset
+            let expanded = contourPadding.expanded(
+                contour.points.map { CGPoint(x: $0.x, y: $0.y) },
+                imageSize: element.frame.size,
+                paddingPixels: amount
+            )
+
+            return CanvasPathContour(
+                points: expanded.map { NormalizedPoint(x: Double($0.x), y: Double($0.y)) },
+                isClosed: contour.isClosed
+            )
+        }
     }
 
     private func contourPolygons(of contours: [CanvasPathContour], in frame: CGRect) -> [[CGPoint]] {

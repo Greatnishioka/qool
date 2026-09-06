@@ -15,11 +15,25 @@ nonisolated struct BuildFloatingMemoOutlineUseCase {
     init() {}
 
     func callAsFunction(from canvas: Canvas) -> FloatingMemoOutline? {
+        guard let shapes = unionShapes(of: canvas, includingAdjustment: true) else {
+            return nil
+        }
+
+        // 紙を敷く形は余白とぼかしを含めません。含めるとぼけた縁が塗り潰されます。
+        let paperShapes = unionShapes(of: canvas, includingAdjustment: false) ?? shapes
+
+        return makeOutline(from: shapes, paperShapes: paperShapes)
+    }
+
+    /// 全要素を合成した形。1 つも面を持たなければ `nil`。
+    private func unionShapes(of canvas: Canvas, includingAdjustment: Bool) -> [[[CGPoint]]]? {
         var overlay = CGOverlay()
         var hasSubject = false
 
         for element in canvas.elements {
-            let paths = polygons.outline(for: element).filter { $0.count >= Self.minimumContourPoints }
+            let paths = polygons
+                .outline(for: element, includingAdjustment: includingAdjustment)
+                .filter { $0.count >= Self.minimumContourPoints }
             guard !paths.isEmpty else {
                 continue
             }
@@ -32,15 +46,16 @@ nonisolated struct BuildFloatingMemoOutlineUseCase {
             return nil
         }
 
-        let shapes = overlay
+        return overlay
             .buildGraph(fillRule: .nonZero)
             .extractShapes(overlayRule: .union)
             .filter { !$0.isEmpty }
-
-        return makeOutline(from: shapes)
     }
 
-    private func makeOutline(from shapes: [[[CGPoint]]]) -> FloatingMemoOutline? {
+    private func makeOutline(
+        from shapes: [[[CGPoint]]],
+        paperShapes: [[[CGPoint]]]
+    ) -> FloatingMemoOutline? {
         let allPoints = shapes.flatMap { $0.flatMap { $0 } }
 
         // firstPointは左上の原点
@@ -61,21 +76,37 @@ nonisolated struct BuildFloatingMemoOutlineUseCase {
             height: max(bounds.height, 1)
         )
 
-        let contours = shapes
-            .flatMap { shape in shape }
-            .filter { $0.count >= Self.minimumContourPoints }
-            .map { path in
-                CanvasPathContour(
-                    points: path.map { normalizedPoint($0, in: safeBounds) },
-                    isClosed: true
-                )
-            }
+        let contours = normalizedContours(of: shapes, in: safeBounds)
 
         guard !contours.isEmpty else {
             return nil
         }
 
-        return FloatingMemoOutline(bounds: safeBounds, contours: contours)
+        let paperContours = normalizedContours(of: paperShapes, in: safeBounds)
+
+        return FloatingMemoOutline(
+            bounds: safeBounds,
+            contours: contours,
+            // 紙の形が作れなければ輪郭で代用します。硬い縁になりますが、
+            // 紙が無くて背面が透けるよりはましです。
+            paperContours: paperContours.isEmpty ? contours : paperContours
+        )
+    }
+
+    /// `bounds` を単位空間として正規化した輪郭。面にならない断片は捨てます。
+    private func normalizedContours(
+        of shapes: [[[CGPoint]]],
+        in bounds: CGRect
+    ) -> [CanvasPathContour] {
+        shapes
+            .flatMap { shape in shape }
+            .filter { $0.count >= Self.minimumContourPoints }
+            .map { path in
+                CanvasPathContour(
+                    points: path.map { normalizedPoint($0, in: bounds) },
+                    isClosed: true
+                )
+            }
     }
 
     private func normalizedPoint(_ point: CGPoint, in bounds: CGRect) -> NormalizedPoint {

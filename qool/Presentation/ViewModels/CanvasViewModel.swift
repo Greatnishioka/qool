@@ -401,10 +401,11 @@ final class CanvasViewModel: ObservableObject {
         }
     }
 
+    /// **太さ 0 でも枠線はオフにしません。** オフにすると設定 UI ごと畳まれ、
+    /// スライダーを 0 まで下げた人が戻せなくなります。オンとオフはトグルだけが決めます。
     func updateStrokeWidth(_ strokeWidth: CGFloat) {
         updateSelectedElement { element in
             element.strokeWidth = strokeWidth
-            element.showsStroke = strokeWidth > 0
         }
     }
 

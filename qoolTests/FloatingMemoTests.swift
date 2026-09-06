@@ -84,6 +84,45 @@ struct FloatingMemoTests {
 
     // MARK: - ウィンドウの大きさ
 
+    /// **紙は余白とぼかしを含まない形に敷きます。**
+    /// 広げた形に敷くと、ぼけた縁まで白で塗り潰されて硬い縁に戻ります。
+    @Test func 紙の形は余白のぶん輪郭より内側になる() throws {
+        let contour = CanvasPathContour(points: (0..<24).map { index in
+            let angle = Double(index) / 24 * 2 * .pi
+
+            return NormalizedPoint(x: 0.5 + cos(angle) * 0.3, y: 0.5 + sin(angle) * 0.3)
+        })
+        let element = CanvasElement(
+            kind: .imageCutout,
+            frame: CGRect(x: 0, y: 0, width: 200, height: 200),
+            fillColor: .clear,
+            showsStroke: false,
+            pathContours: [contour],
+            imageAssetID: UUID(),
+            imageAdjustment: ImageAdjustment(padding: 20, blur: 10, blurDirection: .outward)
+        )
+
+        let outline = try #require(buildOutline(from: Canvas(elements: [element])))
+
+        let contourWidth = width(of: try #require(outline.contours.first))
+        let paperWidth = width(of: try #require(outline.paperContours.first))
+
+        #expect(paperWidth < contourWidth)
+    }
+
+    /// 余白もぼかしも無ければ、紙の形は輪郭と変わりません。
+    @Test func 余白がなければ紙の形は輪郭と同じ() throws {
+        let outline = try #require(buildOutline(from: Canvas(elements: [rectangle(0, 0, 100, 100)])))
+
+        #expect(outline.paperContours == outline.contours)
+    }
+
+    private func width(of contour: CanvasPathContour) -> Double {
+        let xs = contour.points.map(\.x)
+
+        return (xs.max() ?? 0) - (xs.min() ?? 0)
+    }
+
     @Test func ウィンドウは縦横比を保ったまま上限に収まる() {
         let size = FloatingMemoWindowManager.windowSize(for: CGRect(x: 0, y: 0, width: 1600, height: 800))
 

@@ -82,4 +82,96 @@ struct CanvasElementPolygonsTests {
 
         #expect(points == [CGPoint(x: 50, y: 50), CGPoint(x: 150, y: 50), CGPoint(x: 100, y: 150)])
     }
+
+    // MARK: - 余白とぼかし
+
+    private func bounds(of points: [CGPoint]) -> CGRect {
+        let first = CGRect(origin: points[0], size: .zero)
+
+        return points.dropFirst().reduce(first) { partialResult, point in
+            partialResult.union(CGRect(origin: point, size: .zero))
+        }
+    }
+
+    /// 円に近い輪郭。矩形とみなされると `ContourPadding` が bounds を広げる経路へ入るため、
+    /// 押し出しの向きを見たいここでは丸い形を使います。
+    private func circleContour(radius: Double = 0.3, count: Int = 24) -> CanvasPathContour {
+        CanvasPathContour(points: (0..<count).map { index in
+            let angle = Double(index) / Double(count) * 2 * .pi
+
+            return NormalizedPoint(x: 0.5 + cos(angle) * radius, y: 0.5 + sin(angle) * radius)
+        })
+    }
+
+    private func imageElement(contours: [CanvasPathContour], adjustment: ImageAdjustment) -> CanvasElement {
+        CanvasElement(
+            kind: .imageCutout,
+            frame: CGRect(x: 0, y: 0, width: 200, height: 200),
+            fillColor: .clear,
+            showsStroke: false,
+            pathContours: contours,
+            imageAssetID: UUID(),
+            imageAdjustment: adjustment
+        )
+    }
+
+    /// **描画は余白とぼかしのぶん外へ広がります。** 形が輪郭のままだと、
+    /// フローティングメモのウィンドウがそこを切り落とします。
+    @Test func 余白のぶん外形が広がる() throws {
+        let contour = circleContour()
+        let plain = imageElement(contours: [contour], adjustment: .default)
+        let padded = imageElement(contours: [contour], adjustment: ImageAdjustment(padding: 12))
+
+        let plainBounds = bounds(of: try #require(polygons.filled(for: plain).first))
+        let paddedBounds = bounds(of: try #require(polygons.filled(for: padded).first))
+
+        #expect(paddedBounds.width > plainBounds.width)
+        #expect(paddedBounds.height > plainBounds.height)
+    }
+
+    @Test func 外向きのぼかしも外形に含まれる() throws {
+        let contour = circleContour()
+        let padded = imageElement(contours: [contour], adjustment: ImageAdjustment(padding: 12))
+        let blurred = imageElement(
+            contours: [contour],
+            adjustment: ImageAdjustment(padding: 12, blur: 10, blurDirection: .outward)
+        )
+
+        let paddedBounds = bounds(of: try #require(polygons.filled(for: padded).first))
+        let blurredBounds = bounds(of: try #require(polygons.filled(for: blurred).first))
+
+        #expect(blurredBounds.width > paddedBounds.width)
+    }
+
+    /// 内側ぼかしは輪郭の内側で完結するので、外形は変わりません。
+    @Test func 内向きのぼかしは外形を変えない() throws {
+        let contour = circleContour()
+        let padded = imageElement(contours: [contour], adjustment: ImageAdjustment(padding: 12))
+        let blurred = imageElement(
+            contours: [contour],
+            adjustment: ImageAdjustment(padding: 12, blur: 10, blurDirection: .inward)
+        )
+
+        let paddedBounds = bounds(of: try #require(polygons.filled(for: padded).first))
+        let blurredBounds = bounds(of: try #require(polygons.filled(for: blurred).first))
+
+        #expect(abs(blurredBounds.width - paddedBounds.width) < 0.0001)
+    }
+
+    /// **穴は縮みます。** 外周と同じ向きへ押し出すと、余白を足したのに抜けが広がります。
+    @Test func 余白を足すと穴は縮む() throws {
+        let outer = circleContour(radius: 0.45)
+        // 穴は外周と逆向きにします。iOverlay の出力もこの向きで返ります。
+        let hole = CanvasPathContour(points: circleContour(radius: 0.15).points.reversed())
+        let element = imageElement(
+            contours: [outer, hole],
+            adjustment: ImageAdjustment(padding: 12)
+        )
+
+        let plain = imageElement(contours: [outer, hole], adjustment: .default)
+        let plainHole = bounds(of: try #require(polygons.filled(for: plain).last))
+        let paddedHole = bounds(of: try #require(polygons.filled(for: element).last))
+
+        #expect(paddedHole.width < plainHole.width)
+    }
 }
