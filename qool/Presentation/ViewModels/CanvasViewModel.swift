@@ -19,6 +19,7 @@ final class CanvasViewModel: ObservableObject {
     private let deleteElementsUseCase: DeleteCanvasElementsUseCase
     private let updateElementUseCase: UpdateCanvasElementUseCase
     private let unionElementsUseCase: UnionCanvasElementsUseCase
+    private let reorderElementsUseCase: ReorderCanvasElementsUseCase
     private let imageStore: CanvasImageStore
     private let importImageUseCase: ImportImageUseCase
     private let cropGeometry = CutoutCropGeometry()
@@ -38,6 +39,7 @@ final class CanvasViewModel: ObservableObject {
         deleteElementsUseCase: DeleteCanvasElementsUseCase = DeleteCanvasElementsUseCase(),
         updateElementUseCase: UpdateCanvasElementUseCase = UpdateCanvasElementUseCase(),
         unionElementsUseCase: UnionCanvasElementsUseCase = UnionCanvasElementsUseCase(),
+        reorderElementsUseCase: ReorderCanvasElementsUseCase = ReorderCanvasElementsUseCase(),
         onSave: @escaping (Memo) -> Void
     ) {
         self.memo = memo
@@ -47,6 +49,7 @@ final class CanvasViewModel: ObservableObject {
         self.deleteElementsUseCase = deleteElementsUseCase
         self.updateElementUseCase = updateElementUseCase
         self.unionElementsUseCase = unionElementsUseCase
+        self.reorderElementsUseCase = reorderElementsUseCase
         self.imageStore = imageStore
         self.importImageUseCase = importImageUseCase
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
@@ -446,6 +449,24 @@ final class CanvasViewModel: ObservableObject {
         editingUnionElementID = nil
         selectedUnionSourceID = nil
         save()
+    }
+
+    /// 選んだ要素を重なり順の前後へ動かす。
+    ///
+    /// **`canvas.elements` の並びがそのまま重なり順です。** 別に順序を持つと、
+    /// 描画と当たり判定のどちらが正なのかが分からなくなります。
+    func reorderSelectedElements(to order: CanvasElementOrder) {
+        guard canReorderSelection(to: order) else {
+            return
+        }
+
+        reorderElementsUseCase(in: &memo.canvas.elements, selectedIDs: selectedElementIDs, to: order)
+        save()
+    }
+
+    /// 端に着いていれば `false`。押しても何も起きないボタンを潰すために使います。
+    func canReorderSelection(to order: CanvasElementOrder) -> Bool {
+        reorderElementsUseCase.canReorder(memo.canvas.elements, selectedIDs: selectedElementIDs, to: order)
     }
 
     func unionSelectedElements() {

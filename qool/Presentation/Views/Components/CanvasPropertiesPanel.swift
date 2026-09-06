@@ -24,12 +24,39 @@ struct CanvasPropertiesPanel: View {
                 }
             }
 
+            if viewModel.hasSelection {
+                layerOrderContent
+            }
+
             Spacer()
         }
         .padding(16)
         .background {
             Rectangle()
                 .fill(Color(nsColor: .controlBackgroundColor))
+        }
+    }
+
+    /// 重なり順の操作。**単一選択でも複数選択でも同じ場所に置きます。**
+    /// 選択の数で導線が変わると、まとめて前面へ出したいときに探すことになります。
+    private var layerOrderContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("重なり順")
+                .font(.subheadline.weight(.semibold))
+
+            HStack(spacing: 6) {
+                ForEach(CanvasElementOrder.allCases) { order in
+                    Button {
+                        viewModel.reorderSelectedElements(to: order)
+                    } label: {
+                        Image(systemName: order.systemImage)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!viewModel.canReorderSelection(to: order))
+                    .help(order.displayName)
+                }
+            }
         }
     }
 
