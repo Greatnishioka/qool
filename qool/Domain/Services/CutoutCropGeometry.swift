@@ -86,9 +86,12 @@ nonisolated struct CutoutCropGeometry {
     ///
     /// **画面上の見た目は変わりません。** 画像が小さくなるぶん枠も縮め、
     /// 輪郭は新しい範囲を基準に取り直します。
+    ///
+    /// 切り詰め前のアセットは `imageSource` に残します。**捨てると解除で戻せません。**
     func applied(_ crop: CutoutCrop, to element: CanvasElement, assetID: UUID) -> CanvasElement {
         let cropRect = crop.normalizedRect
         var updated = element
+        updated.imageSource = source(of: element, croppedBy: cropRect)
         updated.imageAssetID = assetID
         updated.frame = CGRect(
             x: element.frame.minX + cropRect.minX * element.frame.width,
@@ -109,6 +112,69 @@ nonisolated struct CutoutCropGeometry {
         }
 
         return updated
+    }
+
+    /// 切り詰めを取り消し、元画像を表示する要素へ戻す。`applied` の逆です。
+    ///
+    /// **枠は今の位置を基準に広げます。** 切り詰めたあとに動かしていても、
+    /// 見えている絵がその場に残るようにするためです。
+    /// 切り詰めていない要素（`imageSource` が `nil`）はそのまま返します。
+    func restored(_ element: CanvasElement) -> CanvasElement {
+        guard let source = element.imageSource,
+              source.cropRect.width > 0, source.cropRect.height > 0 else {
+            return element
+        }
+
+        let cropRect = source.cropRect
+        let width = element.frame.width / cropRect.width
+        let height = element.frame.height / cropRect.height
+
+        var updated = element
+        updated.imageAssetID = source.assetID
+        updated.imageSource = nil
+        updated.frame = CGRect(
+            x: element.frame.minX - cropRect.minX * width,
+            y: element.frame.minY - cropRect.minY * height,
+            width: width,
+            height: height
+        )
+        updated.pathContours = element.pathContours.map { contour in
+            CanvasPathContour(
+                points: contour.points.map { point in
+                    NormalizedPoint(
+                        x: cropRect.minX + point.x * cropRect.width,
+                        y: cropRect.minY + point.y * cropRect.height
+                    )
+                },
+                isClosed: contour.isClosed
+            )
+        }
+
+        return updated
+    }
+
+    /// 切り詰め前の画像への参照を更新する。
+    ///
+    /// **2 回目以降の切り抜きでも、指す先は最初の画像のままです。**
+    /// 途中の切り詰め画像は戻る先にならないので、範囲だけを掛け合わせて引き継ぎます。
+    private func source(of element: CanvasElement, croppedBy cropRect: CGRect) -> CutoutImageSource? {
+        guard let existing = element.imageSource else {
+            return element.imageAssetID.map { assetID in
+                CutoutImageSource(assetID: assetID, cropRect: cropRect)
+            }
+        }
+
+        let previous = existing.cropRect
+
+        return CutoutImageSource(
+            assetID: existing.assetID,
+            cropRect: CGRect(
+                x: previous.minX + cropRect.minX * previous.width,
+                y: previous.minY + cropRect.minY * previous.height,
+                width: previous.width * cropRect.width,
+                height: previous.height * cropRect.height
+            )
+        )
     }
 
     /// 調整で広げられる分を画素へ直し、下限と比べて大きいほうを採ります。

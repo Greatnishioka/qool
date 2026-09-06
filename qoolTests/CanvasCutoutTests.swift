@@ -165,6 +165,50 @@ struct CanvasCutoutTests {
         }
     }
 
+    /// 解除で切り詰め前の絵と枠へ戻ることの確認。
+    ///
+    /// **輪郭を消すだけでは足りません。** 適用時に「輪郭 + 余白」まで切り詰めているので、
+    /// 画像を戻さないと余白ぶんだけ縮んだ絵が残ります。
+    @Test func 解除すると切り詰める前の画像へ戻る() async throws {
+        let root = URL.temporaryDirectory.appending(
+            path: "qool-tests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let repository = FileImageAssetRepositoryInfrastructure(rootDirectory: root)
+        let viewModel = CanvasViewModel(
+            memo: Memo(title: "テスト"),
+            imageStore: CanvasImageStore(repository: repository),
+            importImageUseCase: ImportImageUseCase(repository: repository),
+            onSave: { _ in }
+        )
+
+        let image = NSImage(size: CGSize(width: 800, height: 800))
+        image.lockFocus()
+        NSColor.systemTeal.drawSwatch(in: CGRect(x: 0, y: 0, width: 800, height: 800))
+        image.unlockFocus()
+
+        viewModel.importImage(image, at: CGPoint(x: 400, y: 400), canvasSize: CGSize(width: 900, height: 900))
+        let element = try #require(viewModel.memo.canvas.elements.first)
+        let originalAssetID = try #require(element.imageAssetID)
+
+        viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
+        let cropped = try #require(viewModel.memo.canvas.elements.first)
+        #expect(cropped.imageAssetID != originalAssetID)
+
+        viewModel.clearCutout(of: element.id)
+
+        let restored = try #require(viewModel.memo.canvas.elements.first)
+        #expect(restored.imageAssetID == originalAssetID)
+        #expect(restored.imageSource == nil)
+        #expect(abs(restored.frame.width - element.frame.width) < 0.0001)
+        #expect(abs(restored.frame.height - element.frame.height) < 0.0001)
+        #expect(abs(restored.frame.minX - element.frame.minX) < 0.0001)
+        #expect(abs(restored.frame.minY - element.frame.minY) < 0.0001)
+        #expect(viewModel.image(for: restored) != nil)
+    }
+
     /// 候補を作るだけでは要素を変えません。
     @Test func 候補の生成は要素を変えない() async throws {
         try await withImportedImage { viewModel, element, image in

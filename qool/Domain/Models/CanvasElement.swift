@@ -18,6 +18,9 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
     /// 切り抜きの元画像。実体ではなく ID を持ちます（`ImageAssetRepositoryProtocol` が解決する）。
     var imageAssetID: UUID?
     var imageAdjustment: ImageAdjustment
+    /// 切り詰める前の元画像。切り抜きを解除したときに戻る先です。
+    /// 切り詰めていなければ `nil`。
+    var imageSource: CutoutImageSource?
     var unionSourceElements: [CanvasElementSnapshot]
 
     init(
@@ -36,6 +39,7 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         isClosedPath: Bool = true,
         imageAssetID: UUID? = nil,
         imageAdjustment: ImageAdjustment = .default,
+        imageSource: CutoutImageSource? = nil,
         unionSourceElements: [CanvasElementSnapshot] = []
     ) {
         self.id = id
@@ -53,6 +57,7 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         self.isClosedPath = isClosedPath
         self.imageAssetID = imageAssetID
         self.imageAdjustment = imageAdjustment
+        self.imageSource = imageSource
         self.unionSourceElements = unionSourceElements
     }
 }

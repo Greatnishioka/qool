@@ -17,6 +17,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
     var isClosedPath: Bool
     var imageAssetID: UUID?
     var imageAdjustment: ImageAdjustment
+    var imageSource: CutoutImageSource?
 
     init(element: CanvasElement) {
         self.id = element.id
@@ -34,6 +35,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
         self.isClosedPath = element.isClosedPath
         self.imageAssetID = element.imageAssetID
         self.imageAdjustment = element.imageAdjustment
+        self.imageSource = element.imageSource
     }
 
     var element: CanvasElement {
@@ -52,7 +54,8 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
             pathContours: pathContours,
             isClosedPath: isClosedPath,
             imageAssetID: imageAssetID,
-            imageAdjustment: imageAdjustment
+            imageAdjustment: imageAdjustment,
+            imageSource: imageSource
         )
     }
 }

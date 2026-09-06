@@ -167,6 +167,101 @@ struct ImageAssetLifecycleTests {
         #expect(cropped.imageAssetID == newAssetID)
     }
 
+    // MARK: - 切り詰めの取り消し
+
+    @Test func 切り詰めると切り詰め前の画像を覚える() throws {
+        let original = imageElement(
+            contours: [contour(CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2))],
+            frame: CGRect(x: 0, y: 0, width: 400, height: 400)
+        )
+        let sourceAssetID = try #require(original.imageAssetID)
+        let crop = try #require(
+            cropGeometry.crop(
+                for: original.pathContours,
+                imagePixelSize: CGSize(width: 1000, height: 1000),
+                displaySize: original.frame.size
+            )
+        )
+
+        let cropped = cropGeometry.applied(crop, to: original, assetID: UUID())
+
+        #expect(cropped.imageSource?.assetID == sourceAssetID)
+        #expect(cropped.imageSource?.cropRect == crop.normalizedRect)
+    }
+
+    /// `restored` は `applied` の逆です。枠・輪郭・画像がすべて戻ります。
+    @Test func 解除すると切り詰める前の要素へ戻る() throws {
+        let original = imageElement(
+            contours: [contour(CGRect(x: 0.3, y: 0.25, width: 0.4, height: 0.5))],
+            frame: CGRect(x: 100, y: 200, width: 400, height: 300)
+        )
+        let crop = try #require(
+            cropGeometry.crop(
+                for: original.pathContours,
+                imagePixelSize: CGSize(width: 800, height: 600),
+                displaySize: original.frame.size
+            )
+        )
+
+        let restored = cropGeometry.restored(cropGeometry.applied(crop, to: original, assetID: UUID()))
+
+        #expect(restored.imageAssetID == original.imageAssetID)
+        #expect(restored.imageSource == nil)
+        #expect(abs(restored.frame.minX - original.frame.minX) < 0.0001)
+        #expect(abs(restored.frame.minY - original.frame.minY) < 0.0001)
+        #expect(abs(restored.frame.width - original.frame.width) < 0.0001)
+        #expect(abs(restored.frame.height - original.frame.height) < 0.0001)
+
+        for (before, after) in zip(original.pathContours[0].points, restored.pathContours[0].points) {
+            #expect(abs(before.x - after.x) < 0.0001)
+            #expect(abs(before.y - after.y) < 0.0001)
+        }
+    }
+
+    /// **途中の切り詰め画像は戻る先になりません。** 何度切り抜いても最初の画像へ戻します。
+    @Test func 二度切り詰めても最初の画像へ戻る() throws {
+        let original = imageElement(
+            contours: [contour(CGRect(x: 0.2, y: 0.2, width: 0.5, height: 0.5))],
+            frame: CGRect(x: 40, y: 60, width: 400, height: 400)
+        )
+        let firstCrop = try #require(
+            cropGeometry.crop(
+                for: original.pathContours,
+                imagePixelSize: CGSize(width: 2000, height: 2000),
+                displaySize: original.frame.size
+            )
+        )
+        let firstCropped = cropGeometry.applied(firstCrop, to: original, assetID: UUID())
+
+        var narrowed = firstCropped
+        narrowed.pathContours = [contour(CGRect(x: 0.3, y: 0.3, width: 0.2, height: 0.2))]
+        let secondCrop = try #require(
+            cropGeometry.crop(
+                for: narrowed.pathContours,
+                imagePixelSize: CGSize(width: 1200, height: 1200),
+                displaySize: narrowed.frame.size
+            )
+        )
+        let secondCropped = cropGeometry.applied(secondCrop, to: narrowed, assetID: UUID())
+
+        let restored = cropGeometry.restored(secondCropped)
+
+        #expect(restored.imageAssetID == original.imageAssetID)
+        #expect(abs(restored.frame.width - original.frame.width) < 0.0001)
+        #expect(abs(restored.frame.height - original.frame.height) < 0.0001)
+        #expect(abs(restored.frame.minX - original.frame.minX) < 0.0001)
+        #expect(abs(restored.frame.minY - original.frame.minY) < 0.0001)
+    }
+
+    @Test func 切り詰めていない要素は解除しても変わらない() {
+        let element = imageElement(
+            contours: [contour(CGRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4))],
+            frame: CGRect(x: 0, y: 0, width: 320, height: 240)
+        )
+
+        #expect(cropGeometry.restored(element) == element)
+    }
+
     // MARK: - 使われなくなった画像の掃除
 
     private func withTemporaryRepository(
@@ -227,6 +322,34 @@ struct ImageAssetLifecycleTests {
             try PruneImageAssetsUseCase(repository: repository)(for: updatedMemo)
 
             #expect(repository.data(for: sourceAssetID, in: memo.id) != nil)
+        }
+    }
+
+    /// 切り抜きは解除できます。戻る先の画像を消すと、解いた要素に絵がありません。
+    @Test func 切り詰める前の画像は残る() throws {
+        try withTemporaryRepository { repository in
+            let memo = Memo(title: "切り詰め")
+            let sourceAssetID = try repository.save(pngHeader, in: memo.id)
+            let croppedAssetID = try repository.save(pngHeader, in: memo.id)
+
+            var updatedMemo = memo
+            updatedMemo.canvas.elements = [
+                CanvasElement(
+                    kind: .imageCutout,
+                    frame: .zero,
+                    fillColor: .clear,
+                    imageAssetID: croppedAssetID,
+                    imageSource: CutoutImageSource(
+                        assetID: sourceAssetID,
+                        cropRect: CGRect(x: 0.2, y: 0.2, width: 0.5, height: 0.5)
+                    )
+                )
+            ]
+
+            try PruneImageAssetsUseCase(repository: repository)(for: updatedMemo)
+
+            #expect(repository.data(for: sourceAssetID, in: memo.id) != nil)
+            #expect(repository.data(for: croppedAssetID, in: memo.id) != nil)
         }
     }
 

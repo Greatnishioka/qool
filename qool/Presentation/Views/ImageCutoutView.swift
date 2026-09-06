@@ -309,12 +309,13 @@ struct ImageCutoutView: View {
             }
             .disabled(tracePoints.isEmpty && history == nil)
 
+            // 手直しした形をそのまま渡します。**候補を渡すと手直しが捨てられます。**
             Button("適用") {
-                onApply(selectedCandidate?.contours ?? [])
+                onApply(previewContours)
                 onDismiss()
             }
             .keyboardShortcut(.defaultAction)
-            .disabled(selectedCandidate == nil)
+            .disabled(previewContours.isEmpty)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

@@ -132,8 +132,12 @@ final class CanvasViewModel: ObservableObject {
     }
 
     /// 切り抜きを解除し、元の矩形表示へ戻す。
+    ///
+    /// **切り詰める前の画像まで戻します。** 輪郭を消すだけでは、
+    /// 適用時に切り詰めた「輪郭 + 余白」の絵が残り、元の写真へ戻れません。
     func clearCutout(of elementID: CanvasElement.ID) {
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element = cropGeometry.restored(element)
             element.pathContours = []
         }
         save()
