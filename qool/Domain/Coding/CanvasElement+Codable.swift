@@ -14,6 +14,7 @@ nonisolated extension CanvasElement {
         case fillColor
         case strokeColor
         case strokeWidth
+        case strokeAlignment
         case showsStroke
         case cornerRadius
         case text
@@ -44,6 +45,10 @@ nonisolated extension CanvasElement {
             fillColor: try container.decode(CanvasColor.self, forKey: .fillColor),
             strokeColor: try container.decodeIfPresent(CanvasColor.self, forKey: .strokeColor) ?? .ink,
             strokeWidth: try container.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2,
+            strokeAlignment: try container.decodeIfPresent(
+                CanvasStrokeAlignment.self,
+                forKey: .strokeAlignment
+            ) ?? .center,
             showsStroke: try container.decodeIfPresent(Bool.self, forKey: .showsStroke) ?? true,
             cornerRadius: try container.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0,
             text: try container.decodeIfPresent(String.self, forKey: .text) ?? "テキスト",
@@ -76,6 +81,7 @@ nonisolated extension CanvasElement {
         try container.encode(fillColor, forKey: .fillColor)
         try container.encode(strokeColor, forKey: .strokeColor)
         try container.encode(strokeWidth, forKey: .strokeWidth)
+        try container.encode(strokeAlignment, forKey: .strokeAlignment)
         try container.encode(showsStroke, forKey: .showsStroke)
         try container.encode(cornerRadius, forKey: .cornerRadius)
         try container.encode(text, forKey: .text)

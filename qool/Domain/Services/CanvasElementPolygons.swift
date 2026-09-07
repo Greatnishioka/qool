@@ -30,9 +30,9 @@ nonisolated struct CanvasElementPolygons {
     private func unrotatedFilled(for element: CanvasElement, includingAdjustment: Bool) -> [[CGPoint]] {
         switch element.kind {
         case .rectangle:
-            return [roundedRectanglePoints(for: element)]
+            return [roundedRectanglePoints(for: element, outset: includingAdjustment ? outwardStrokeWidth(of: element) : 0)]
         case .path:
-            return pathPolygons(for: element)
+            return pathPolygons(for: element, includingAdjustment: includingAdjustment)
         case .imageCutout:
             let contours = includingAdjustment ? paddedContours(of: element) : element.pathContours
             return contourPolygons(of: contours, in: element.frame)
@@ -80,15 +80,18 @@ nonisolated struct CanvasElementPolygons {
 
     // MARK: - 種類ごとの変換
 
-    private func pathPolygons(for element: CanvasElement) -> [[CGPoint]] {
+    private func pathPolygons(for element: CanvasElement, includingAdjustment: Bool) -> [[CGPoint]] {
         guard element.isClosedPath else {
             return []
         }
 
         if !element.pathContours.isEmpty {
-            return contourPolygons(of: element.pathContours, in: element.frame)
+            let contours = includingAdjustment ? paddedContours(of: element) : element.pathContours
+            return contourPolygons(of: contours, in: element.frame)
         }
 
+        // **曲線のパスは広げません。** 点列から毎回曲線を引き直すため、
+        // 外側枠線のぶんを足すには曲線を作り直す必要があります。
         return [sampledPathPoints(for: element)].filter { $0.count >= 3 }
     }
 
@@ -102,9 +105,7 @@ nonisolated struct CanvasElementPolygons {
     /// **穴は逆向きに縮めます。** 外周と同じ向きへ押し出すと穴まで広がり、
     /// 余白を足したのに抜けが大きくなります。
     private func paddedContours(of element: CanvasElement) -> [CanvasPathContour] {
-        let adjustment = element.imageAdjustment
-        // 外側ぼかしは、ぼけた分だけ形が外へ出ます。内側ぼかしは輪郭の内側で完結します。
-        let outset = CGFloat(adjustment.padding + (adjustment.blurDirection == .inward ? 0 : adjustment.blur))
+        let outset = outwardExtent(of: element)
 
         guard outset > 0, element.frame.width > 0, element.frame.height > 0 else {
             return element.pathContours
@@ -133,6 +134,26 @@ nonisolated struct CanvasElementPolygons {
         }
     }
 
+    /// 描画が形の外へ広がる量。余白・外側ぼかし・外側枠線の合計です。
+    private func outwardExtent(of element: CanvasElement) -> CGFloat {
+        let adjustment = element.imageAdjustment
+        // 外側ぼかしは、ぼけた分だけ形が外へ出ます。内側ぼかしは輪郭の内側で完結します。
+        let blur = adjustment.blurDirection == .inward ? 0 : adjustment.blur
+        // 画像以外は余白とぼかしを持たないので、枠線だけが効きます。
+        let adjustmentOutset = element.kind == .imageCutout ? CGFloat(adjustment.padding + blur) : 0
+
+        return adjustmentOutset + outwardStrokeWidth(of: element)
+    }
+
+    /// 外側へ描かれる枠線の太さ。内側・中央では 0 です。
+    private func outwardStrokeWidth(of element: CanvasElement) -> CGFloat {
+        guard element.showsStroke, element.strokeAlignment == .outside else {
+            return 0
+        }
+
+        return max(0, element.strokeWidth)
+    }
+
     private func contourPolygons(of contours: [CanvasPathContour], in frame: CGRect) -> [[CGPoint]] {
         contours
             .filter(\.isClosed)
@@ -151,9 +172,10 @@ nonisolated struct CanvasElementPolygons {
         ]
     }
 
-    private func roundedRectanglePoints(for element: CanvasElement) -> [CGPoint] {
-        let frame = element.frame
-        let radius = min(max(element.cornerRadius, 0), min(frame.width, frame.height) / 2)
+    private func roundedRectanglePoints(for element: CanvasElement, outset: CGFloat = 0) -> [CGPoint] {
+        let frame = element.frame.insetBy(dx: -outset, dy: -outset)
+        // 角丸も一緒に広げないと、外側枠線の角だけ形からはみ出します。
+        let radius = min(max(element.cornerRadius + outset, 0), min(frame.width, frame.height) / 2)
         guard radius > 0 else {
             return rectanglePoints(of: frame)
         }

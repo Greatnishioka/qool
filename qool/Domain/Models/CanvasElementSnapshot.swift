@@ -8,6 +8,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
     var fillColor: CanvasColor
     var strokeColor: CanvasColor
     var strokeWidth: CGFloat
+    var strokeAlignment: CanvasStrokeAlignment
     var showsStroke: Bool
     var cornerRadius: CGFloat
     var text: String
@@ -26,6 +27,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
         self.fillColor = element.fillColor
         self.strokeColor = element.strokeColor
         self.strokeWidth = element.strokeWidth
+        self.strokeAlignment = element.strokeAlignment
         self.showsStroke = element.showsStroke
         self.cornerRadius = element.cornerRadius
         self.text = element.text
@@ -46,6 +48,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
             fillColor: fillColor,
             strokeColor: strokeColor,
             strokeWidth: strokeWidth,
+            strokeAlignment: strokeAlignment,
             showsStroke: showsStroke,
             cornerRadius: cornerRadius,
             text: text,

@@ -108,11 +108,42 @@ struct CanvasElementView: View {
         .blur(radius: adjustment.blur)
     }
 
+    /// 枠線。**内側 / 外側は、倍の太さで描いてから片側を捨てて作ります。**
+    /// 形を内外へずらして作り直す方法もありますが、`Shape` は一般には
+    /// オフセットできず、輪郭の点を毎回計算し直すと `body` のたびに重くなります。
     @ViewBuilder
     private func strokeOverlay<S: Shape>(_ shape: S) -> some View {
-        if element.showsStroke {
-            shape.stroke(element.strokeColor.swiftUIColor, lineWidth: element.strokeWidth)
+        if element.showsStroke, element.strokeWidth > 0 {
+            let color = element.strokeColor.swiftUIColor
+
+            switch element.strokeAlignment {
+            case .center:
+                shape.stroke(color, lineWidth: element.strokeWidth)
+            case .inside:
+                shape.stroke(color, lineWidth: element.strokeWidth * 2)
+                    .clipShape(shape, style: FillStyle(eoFill: true))
+            case .outside:
+                shape.stroke(color, lineWidth: element.strokeWidth * 2)
+                    .mask { outwardStrokeMask(shape) }
+            }
         }
+    }
+
+    /// 形の外側だけを残すマスク。内側を打ち抜いた矩形です。
+    ///
+    /// **矩形は枠線のぶん外へ広げます。** 枠の外側は要素の枠からはみ出すので、
+    /// 広げないとマスクの縁で切られます。`padding` を矩形にだけ掛けるのが要点で、
+    /// 全体に掛けると打ち抜く形まで一緒に拡大されます。
+    private func outwardStrokeMask<S: Shape>(_ shape: S) -> some View {
+        Rectangle()
+            .fill(Color.white)
+            .padding(-element.strokeWidth)
+            .overlay {
+                shape
+                    .fill(Color.black, style: FillStyle(eoFill: true))
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
     }
 }
 

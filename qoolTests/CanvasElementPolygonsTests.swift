@@ -174,4 +174,53 @@ struct CanvasElementPolygonsTests {
 
         #expect(paddedHole.width < plainHole.width)
     }
+
+    // MARK: - 枠線の広がる向き
+
+    private func strokedRectangle(_ alignment: CanvasStrokeAlignment) -> CanvasElement {
+        CanvasElement(
+            kind: .rectangle,
+            frame: CGRect(x: 20, y: 20, width: 100, height: 60),
+            fillColor: .paper,
+            strokeWidth: 8,
+            strokeAlignment: alignment
+        )
+    }
+
+    /// **外側枠線はウィンドウの形に含めます。** 含めないと、
+    /// デスクトップに貼ったときに枠線がウィンドウの縁で切られます。
+    @Test func 外側枠線のぶん外形が広がる() throws {
+        let centered = bounds(of: try #require(polygons.filled(for: strokedRectangle(.center)).first))
+        let outside = bounds(of: try #require(polygons.filled(for: strokedRectangle(.outside)).first))
+
+        #expect(abs(outside.width - (centered.width + 16)) < 0.0001)
+        #expect(abs(outside.minX - (centered.minX - 8)) < 0.0001)
+    }
+
+    @Test func 内側枠線は外形を変えない() throws {
+        let centered = bounds(of: try #require(polygons.filled(for: strokedRectangle(.center)).first))
+        let inside = bounds(of: try #require(polygons.filled(for: strokedRectangle(.inside)).first))
+
+        #expect(abs(inside.width - centered.width) < 0.0001)
+    }
+
+    /// 枠線がオフなら向きに関係なく広がりません。
+    @Test func 枠線がオフなら外側でも広がらない() throws {
+        var element = strokedRectangle(.outside)
+        element.showsStroke = false
+
+        let hidden = bounds(of: try #require(polygons.filled(for: element).first))
+        let centered = bounds(of: try #require(polygons.filled(for: strokedRectangle(.center)).first))
+
+        #expect(abs(hidden.width - centered.width) < 0.0001)
+    }
+
+    /// 紙を敷く形には含めません。枠線の外まで紙を敷くと縁が硬くなります。
+    @Test func 紙の形には外側枠線を含めない() throws {
+        let element = strokedRectangle(.outside)
+        let withStroke = bounds(of: try #require(polygons.filled(for: element).first))
+        let paper = bounds(of: try #require(polygons.filled(for: element, includingAdjustment: false).first))
+
+        #expect(paper.width < withStroke.width)
+    }
 }

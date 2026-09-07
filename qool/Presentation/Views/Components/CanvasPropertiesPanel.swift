@@ -174,6 +174,25 @@ struct CanvasPropertiesPanel: View {
                         step: 1
                     )
                 }
+
+                // 線そのものを描く要素なので、内外の区別がありません。
+                if element.kind != .line {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("広がる向き")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("広がる向き", selection: Binding(
+                            get: { viewModel.selectedElement?.strokeAlignment ?? .center },
+                            set: { viewModel.updateStrokeAlignment($0) }
+                        )) {
+                            ForEach(CanvasStrokeAlignment.allCases) { alignment in
+                                Text(alignment.displayName).tag(alignment)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+                }
             }
         }
 

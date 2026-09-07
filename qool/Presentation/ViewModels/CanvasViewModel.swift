@@ -412,6 +412,12 @@ final class CanvasViewModel: ObservableObject {
         }
     }
 
+    func updateStrokeAlignment(_ alignment: CanvasStrokeAlignment) {
+        updateSelectedElement { element in
+            element.strokeAlignment = alignment
+        }
+    }
+
     func updateImageAdjustment(_ adjustment: ImageAdjustment) {
         updateSelectedElement { element in
             guard element.kind == .imageCutout else {

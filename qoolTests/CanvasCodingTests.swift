@@ -147,11 +147,26 @@ struct CanvasCodingTests {
         #expect(element.id == id)
         #expect(element.strokeColor == .ink)
         #expect(element.strokeWidth == 2)
+        // 既定は中央。既存のメモを読んでも見た目が変わりません。
+        #expect(element.strokeAlignment == .center)
         #expect(element.showsStroke)
         #expect(element.cornerRadius == 0)
         #expect(element.text == "テキスト")
         #expect(element.isClosedPath)
         #expect(element.unionSourceElements.isEmpty)
+    }
+
+    @Test func 枠線の広がる向きが往復する() throws {
+        let element = CanvasElement(
+            kind: .rectangle,
+            frame: CGRect(x: 0, y: 0, width: 10, height: 10),
+            fillColor: .paper,
+            strokeAlignment: .outside
+        )
+
+        let data = try JSONEncoder().encode(element)
+
+        #expect(try JSONDecoder().decode(CanvasElement.self, from: data).strokeAlignment == .outside)
     }
 
     @Test func 結合の構成元が往復する() throws {
