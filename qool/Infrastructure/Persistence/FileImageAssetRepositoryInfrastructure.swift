@@ -57,6 +57,27 @@ nonisolated final class FileImageAssetRepositoryInfrastructure: ImageAssetReposi
         return id
     }
 
+    /// **ファイル名が UUID として読めないものは触りません。** 想定外のファイルが混ざっていても、
+    /// アプリが消していいものだとは限りません。
+    func deleteAssets(in memoID: Memo.ID, keeping usedIDs: Set<UUID>) throws {
+        let directory = layout.assetsDirectory(for: memoID)
+
+        guard fileManager.fileExists(atPath: directory.path(percentEncoded: false)) else {
+            return
+        }
+
+        let files = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+
+        for file in files {
+            guard let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent),
+                  !usedIDs.contains(id) else {
+                continue
+            }
+
+            try fileManager.removeItem(at: file)
+        }
+    }
+
     func delete(id: UUID, in memoID: Memo.ID) throws {
         let fileURL = layout.assetFile(id, in: memoID)
 

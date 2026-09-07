@@ -8,6 +8,8 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
     var fillColor: CanvasColor
     var strokeColor: CanvasColor
     var strokeWidth: CGFloat
+    /// 枠線を形のどちら側へ広げるか。
+    var strokeAlignment: CanvasStrokeAlignment
     var showsStroke: Bool
     var cornerRadius: CGFloat
     var text: String
@@ -18,6 +20,9 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
     /// 切り抜きの元画像。実体ではなく ID を持ちます（`ImageAssetRepositoryProtocol` が解決する）。
     var imageAssetID: UUID?
     var imageAdjustment: ImageAdjustment
+    /// 切り詰める前の元画像。切り抜きを解除したときに戻る先です。
+    /// 切り詰めていなければ `nil`。
+    var imageSource: CutoutImageSource?
     var unionSourceElements: [CanvasElementSnapshot]
 
     init(
@@ -27,6 +32,7 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         fillColor: CanvasColor,
         strokeColor: CanvasColor = .ink,
         strokeWidth: CGFloat = 2,
+        strokeAlignment: CanvasStrokeAlignment = .center,
         showsStroke: Bool = true,
         cornerRadius: CGFloat = 0,
         text: String = "テキスト",
@@ -36,6 +42,7 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         isClosedPath: Bool = true,
         imageAssetID: UUID? = nil,
         imageAdjustment: ImageAdjustment = .default,
+        imageSource: CutoutImageSource? = nil,
         unionSourceElements: [CanvasElementSnapshot] = []
     ) {
         self.id = id
@@ -44,6 +51,7 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         self.fillColor = fillColor
         self.strokeColor = strokeColor
         self.strokeWidth = strokeWidth
+        self.strokeAlignment = strokeAlignment
         self.showsStroke = showsStroke
         self.cornerRadius = cornerRadius
         self.text = text
@@ -53,6 +61,7 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         self.isClosedPath = isClosedPath
         self.imageAssetID = imageAssetID
         self.imageAdjustment = imageAdjustment
+        self.imageSource = imageSource
         self.unionSourceElements = unionSourceElements
     }
 }

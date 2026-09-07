@@ -19,8 +19,10 @@ final class CanvasViewModel: ObservableObject {
     private let deleteElementsUseCase: DeleteCanvasElementsUseCase
     private let updateElementUseCase: UpdateCanvasElementUseCase
     private let unionElementsUseCase: UnionCanvasElementsUseCase
+    private let reorderElementsUseCase: ReorderCanvasElementsUseCase
     private let imageStore: CanvasImageStore
     private let importImageUseCase: ImportImageUseCase
+    private let cropGeometry = CutoutCropGeometry()
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
     private let buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase
     private let onSave: (Memo) -> Void
@@ -37,6 +39,7 @@ final class CanvasViewModel: ObservableObject {
         deleteElementsUseCase: DeleteCanvasElementsUseCase = DeleteCanvasElementsUseCase(),
         updateElementUseCase: UpdateCanvasElementUseCase = UpdateCanvasElementUseCase(),
         unionElementsUseCase: UnionCanvasElementsUseCase = UnionCanvasElementsUseCase(),
+        reorderElementsUseCase: ReorderCanvasElementsUseCase = ReorderCanvasElementsUseCase(),
         onSave: @escaping (Memo) -> Void
     ) {
         self.memo = memo
@@ -46,6 +49,7 @@ final class CanvasViewModel: ObservableObject {
         self.deleteElementsUseCase = deleteElementsUseCase
         self.updateElementUseCase = updateElementUseCase
         self.unionElementsUseCase = unionElementsUseCase
+        self.reorderElementsUseCase = reorderElementsUseCase
         self.imageStore = imageStore
         self.importImageUseCase = importImageUseCase
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
@@ -85,19 +89,58 @@ final class CanvasViewModel: ObservableObject {
             element.pathContours = contours
             element.isClosedPath = true
         }
+        cropSourceImage(of: elementID)
         save()
 
         return true
     }
 
+    /// 輪郭が決まった元画像を、そのまわりだけ残して置き換える。
+    ///
+    /// **見た目は変わりません。** 画像が小さくなるぶん枠も縮め、輪郭を取り直します。
+    /// 置き換えられなくても静かに諦めます。原寸のままでも表示は正しいためです。
+    private func cropSourceImage(of elementID: CanvasElement.ID) {
+        guard let element = memo.canvas.elements.first(where: { $0.id == elementID }),
+              let sourceImage = image(for: element)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return
+        }
+
+        let pixelSize = CGSize(width: sourceImage.width, height: sourceImage.height)
+
+        guard let crop = cropGeometry.crop(
+                  for: element.pathContours,
+                  imagePixelSize: pixelSize,
+                  displaySize: element.frame.size
+              ),
+              let cropped = sourceImage.cropping(to: crop.pixelRect),
+              let data = CanvasImageStore.pngData(from: cropped),
+              let assetID = try? importImageUseCase(data, in: memo.id) else {
+            return
+        }
+
+        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element = cropGeometry.applied(crop, to: element, assetID: assetID)
+        }
+    }
+
     /// なぞりから作った候補。推奨 → スコア降順 → 手描き の順で並びます。**要素は変えません。**
-    func cutoutCandidates(tracePoints: [CGPoint]) -> [CutoutCandidate] {
-        buildCutoutCandidatesUseCase(tracePoints: tracePoints)
+    ///
+    /// 被写体マスクの抽出に Vision の推論が入るため非同期です。
+    func cutoutCandidates(image: NSImage, tracePoints: [CGPoint]) async -> [CutoutCandidate] {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return []
+        }
+
+        return await buildCutoutCandidatesUseCase(image: cgImage, tracePoints: tracePoints)
     }
 
     /// 切り抜きを解除し、元の矩形表示へ戻す。
+    ///
+    /// **切り詰める前の画像まで戻します。** 輪郭を消すだけでは、
+    /// 適用時に切り詰めた「輪郭 + 余白」の絵が残り、元の写真へ戻れません。
     func clearCutout(of elementID: CanvasElement.ID) {
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element = cropGeometry.restored(element)
             element.pathContours = []
         }
         save()
@@ -361,10 +404,27 @@ final class CanvasViewModel: ObservableObject {
         }
     }
 
+    /// **太さ 0 でも枠線はオフにしません。** オフにすると設定 UI ごと畳まれ、
+    /// スライダーを 0 まで下げた人が戻せなくなります。オンとオフはトグルだけが決めます。
     func updateStrokeWidth(_ strokeWidth: CGFloat) {
         updateSelectedElement { element in
             element.strokeWidth = strokeWidth
-            element.showsStroke = strokeWidth > 0
+        }
+    }
+
+    func updateStrokeAlignment(_ alignment: CanvasStrokeAlignment) {
+        updateSelectedElement { element in
+            element.strokeAlignment = alignment
+        }
+    }
+
+    func updateImageAdjustment(_ adjustment: ImageAdjustment) {
+        updateSelectedElement { element in
+            guard element.kind == .imageCutout else {
+                return
+            }
+
+            element.imageAdjustment = adjustment
         }
     }
 
@@ -397,6 +457,24 @@ final class CanvasViewModel: ObservableObject {
         save()
     }
 
+    /// 選んだ要素を重なり順の前後へ動かす。
+    ///
+    /// **`canvas.elements` の並びがそのまま重なり順です。** 別に順序を持つと、
+    /// 描画と当たり判定のどちらが正なのかが分からなくなります。
+    func reorderSelectedElements(to order: CanvasElementOrder) {
+        guard canReorderSelection(to: order) else {
+            return
+        }
+
+        reorderElementsUseCase(in: &memo.canvas.elements, selectedIDs: selectedElementIDs, to: order)
+        save()
+    }
+
+    /// 端に着いていれば `false`。押しても何も起きないボタンを潰すために使います。
+    func canReorderSelection(to order: CanvasElementOrder) -> Bool {
+        reorderElementsUseCase.canReorder(memo.canvas.elements, selectedIDs: selectedElementIDs, to: order)
+    }
+
     func unionSelectedElements() {
         guard canUnionSelection else {
             return
@@ -406,6 +484,8 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
+        // ここでは掃除しません。**結合要素を足す前に走ると、元要素の画像を消します。**
+        // 結合しても画像は `unionSourceElements` が参照し続けるので、孤児は生まれません。
         deleteElementsUseCase(in: &memo.canvas.elements, selectedIDs: selectedElementIDs)
         memo.canvas.elements.append(unionElement)
         selectedElementIDs = [unionElement.id]

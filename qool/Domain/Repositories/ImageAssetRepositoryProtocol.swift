@@ -21,4 +21,11 @@ nonisolated protocol ImageAssetRepositoryProtocol: Sendable {
 
     /// 存在しないものの削除は成功として扱います。
     func delete(id: UUID, in memoID: Memo.ID) throws
+
+    /// `usedIDs` に含まれない画像を消す。
+    ///
+    /// **`save` は毎回新しい ID を振るため、切り抜きをやり直すたびに孤児が増えます。**
+    /// 参照している側（メモ）から見て要らないものを消すほうが、
+    /// 個別の削除を呼び忘れるより取りこぼしません。
+    func deleteAssets(in memoID: Memo.ID, keeping usedIDs: Set<UUID>) throws
 }

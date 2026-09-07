@@ -6,7 +6,21 @@ import AppKit
 /// `willTerminateNotification` では非同期を待てず、セマフォ待機は MainActor を塞ぎます。
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let viewModel = AppRootViewModel.bootstrap()
+    /// **設定の実体は 1 つだけ作ります。** ホットキーと切り抜きの履歴で同じ値を読むため、
+    /// 別々に作ると片方の変更がもう片方に届きません。
+    private let settings = UserDefaultsAppSettingsInfrastructure()
+
+    private(set) lazy var viewModel = AppRootViewModel.bootstrap(settings: settings)
+
+    /// デスクトップに貼ったメモ。**遅延生成なのは `viewModel` に依存するためです。**
+    private(set) lazy var floatingMemos = FloatingMemoPresenter(viewModel: viewModel)
+
+    private(set) lazy var hotKeys = HotKeyCoordinator(
+        viewModel: viewModel,
+        floatingMemos: floatingMemos,
+        settings: settings,
+        globalHotKey: CarbonGlobalHotKeyInfrastructure()
+    )
 
     /// 終了要求の多重実行を防ぐ。`reply` は必ず 1 回だけ呼ぶ必要があります。
     private var isTerminating = false
@@ -14,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 書き込みを待つ上限。ファイル I/O が返らない場合（ネットワークボリュームなど）、
     /// **これがないと `.terminateLater` のまま永久に終了できなくなります。**
     private static let flushTimeout = Duration.seconds(5)
+
+    /// 前回貼ってあったメモを貼り直し、ホットキーを登録します。
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        floatingMemos.start()
+        hotKeys.start()
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isTerminating else {

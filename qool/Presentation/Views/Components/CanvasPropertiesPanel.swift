@@ -24,12 +24,39 @@ struct CanvasPropertiesPanel: View {
                 }
             }
 
+            if viewModel.hasSelection {
+                layerOrderContent
+            }
+
             Spacer()
         }
         .padding(16)
         .background {
             Rectangle()
                 .fill(Color(nsColor: .controlBackgroundColor))
+        }
+    }
+
+    /// 重なり順の操作。**単一選択でも複数選択でも同じ場所に置きます。**
+    /// 選択の数で導線が変わると、まとめて前面へ出したいときに探すことになります。
+    private var layerOrderContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("重なり順")
+                .font(.subheadline.weight(.semibold))
+
+            HStack(spacing: 6) {
+                ForEach(CanvasElementOrder.allCases) { order in
+                    Button {
+                        viewModel.reorderSelectedElements(to: order)
+                    } label: {
+                        Image(systemName: order.systemImage)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!viewModel.canReorderSelection(to: order))
+                    .help(order.displayName)
+                }
+            }
         }
     }
 
@@ -106,6 +133,10 @@ struct CanvasPropertiesPanel: View {
             }
         }
 
+        if element.kind == .imageCutout {
+            imageAdjustmentContent(for: element)
+        }
+
         VStack(alignment: .leading, spacing: 10) {
             Text("塗り")
                 .font(.subheadline.weight(.semibold))
@@ -143,6 +174,25 @@ struct CanvasPropertiesPanel: View {
                         step: 1
                     )
                 }
+
+                // 線そのものを描く要素なので、内外の区別がありません。
+                if element.kind != .line {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("広がる向き")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("広がる向き", selection: Binding(
+                            get: { viewModel.selectedElement?.strokeAlignment ?? .center },
+                            set: { viewModel.updateStrokeAlignment($0) }
+                        )) {
+                            ForEach(CanvasStrokeAlignment.allCases) { alignment in
+                                Text(alignment.displayName).tag(alignment)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+                }
             }
         }
 
@@ -163,6 +213,103 @@ struct CanvasPropertiesPanel: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+    }
+
+    /// 切り抜き画像の見え方（S7）。
+    ///
+    /// **輪郭ではなく見た目だけを変えます。** 余白とぼかしはマスクを膨らませる方向に効き、
+    /// 保存されている輪郭そのものは動きません。やり直しは切り抜き画面の側です。
+    @ViewBuilder
+    private func imageAdjustmentContent(for element: CanvasElement) -> some View {
+        let adjustment = element.imageAdjustment
+
+        VStack(alignment: .leading, spacing: 10) {
+            Text("画像の調整")
+                .font(.subheadline.weight(.semibold))
+
+            adjustmentSlider(
+                title: "不透明度",
+                value: Binding(
+                    get: { adjustment.opacity },
+                    set: { viewModel.updateImageAdjustment(adjustment.updated(opacity: $0)) }
+                ),
+                range: ImageAdjustment.opacityRange,
+                format: { "\(Int($0 * 100))%" }
+            )
+
+            adjustmentSlider(
+                title: "明るさ",
+                value: Binding(
+                    get: { adjustment.brightness },
+                    set: { viewModel.updateImageAdjustment(adjustment.updated(brightness: $0)) }
+                ),
+                range: ImageAdjustment.brightnessRange,
+                format: { String(format: "%+.2f", $0) }
+            )
+
+            adjustmentSlider(
+                title: "余白",
+                value: Binding(
+                    get: { adjustment.padding },
+                    set: { viewModel.updateImageAdjustment(adjustment.updated(padding: $0)) }
+                ),
+                range: ImageAdjustment.paddingRange,
+                format: { "\(Int($0))" }
+            )
+
+            adjustmentSlider(
+                title: "ぼかし",
+                value: Binding(
+                    get: { adjustment.blur },
+                    set: { viewModel.updateImageAdjustment(adjustment.updated(blur: $0)) }
+                ),
+                range: ImageAdjustment.blurRange,
+                format: { "\(Int($0))" }
+            )
+
+            if adjustment.blur > 0 {
+                Picker(
+                    "ぼかす方向",
+                    selection: Binding(
+                        get: { adjustment.blurDirection },
+                        set: { viewModel.updateImageAdjustment(adjustment.updated(blurDirection: $0)) }
+                    )
+                ) {
+                    ForEach(ImageBlurDirection.allCases) { direction in
+                        Text(direction.displayName).tag(direction)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Button("初期状態に戻す") {
+                viewModel.updateImageAdjustment(.default)
+            }
+            .buttonStyle(.bordered)
+            .disabled(adjustment == .default)
+        }
+    }
+
+    /// `Binding` は呼び出し側で組みます。**閉包を引数で受け渡すと `@Sendable` を要求され、
+    /// `viewModel` を捕まえられません。**
+    private func adjustmentSlider(
+        title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        format: (Double) -> String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.caption)
+                Spacer()
+                Text(format(value.wrappedValue))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Slider(value: value, in: range)
+        }
     }
 
     @ViewBuilder

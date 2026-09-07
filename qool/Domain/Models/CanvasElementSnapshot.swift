@@ -8,6 +8,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
     var fillColor: CanvasColor
     var strokeColor: CanvasColor
     var strokeWidth: CGFloat
+    var strokeAlignment: CanvasStrokeAlignment
     var showsStroke: Bool
     var cornerRadius: CGFloat
     var text: String
@@ -17,6 +18,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
     var isClosedPath: Bool
     var imageAssetID: UUID?
     var imageAdjustment: ImageAdjustment
+    var imageSource: CutoutImageSource?
 
     init(element: CanvasElement) {
         self.id = element.id
@@ -25,6 +27,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
         self.fillColor = element.fillColor
         self.strokeColor = element.strokeColor
         self.strokeWidth = element.strokeWidth
+        self.strokeAlignment = element.strokeAlignment
         self.showsStroke = element.showsStroke
         self.cornerRadius = element.cornerRadius
         self.text = element.text
@@ -34,6 +37,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
         self.isClosedPath = element.isClosedPath
         self.imageAssetID = element.imageAssetID
         self.imageAdjustment = element.imageAdjustment
+        self.imageSource = element.imageSource
     }
 
     var element: CanvasElement {
@@ -44,6 +48,7 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
             fillColor: fillColor,
             strokeColor: strokeColor,
             strokeWidth: strokeWidth,
+            strokeAlignment: strokeAlignment,
             showsStroke: showsStroke,
             cornerRadius: cornerRadius,
             text: text,
@@ -52,7 +57,8 @@ nonisolated struct CanvasElementSnapshot: Identifiable, Equatable, Hashable, Cod
             pathContours: pathContours,
             isClosedPath: isClosedPath,
             imageAssetID: imageAssetID,
-            imageAdjustment: imageAdjustment
+            imageAdjustment: imageAdjustment,
+            imageSource: imageSource
         )
     }
 }

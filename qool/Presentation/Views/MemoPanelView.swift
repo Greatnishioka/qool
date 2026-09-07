@@ -4,6 +4,8 @@ import SwiftUI
 /// メモパネル。メニューバーから開く、アプリの中心となる画面。
 struct MemoPanelView: View {
     @ObservedObject var viewModel: AppRootViewModel
+    let floatingMemos: FloatingMemoPresenter
+    @ObservedObject var hotKeys: HotKeyCoordinator
     @Environment(\.openWindow) private var openWindow
 
     /// 削除は取り消せないので、確認を挟みます。
@@ -14,6 +16,11 @@ struct MemoPanelView: View {
             // 失敗しているときだけ出る。常時は何も足しません。
             if viewModel.persistenceStatus != .ok {
                 statusBanner
+                Divider()
+            }
+
+            if let message = hotKeys.registrationFailureMessage {
+                hotKeyFailureBanner(message)
                 Divider()
             }
 
@@ -91,6 +98,23 @@ struct MemoPanelView: View {
         .background((isFailing ? Color.red : Color.orange).opacity(0.14))
     }
 
+    private func hotKeyFailureBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "keyboard.badge.exclamationmark")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.orange)
+
+            Text(message)
+                .font(.system(size: 12))
+                .lineLimit(2)
+
+            Spacer(minLength: 4)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color.orange.opacity(0.14))
+    }
+
     private var header: some View {
         HStack {
             Text("メモ")
@@ -131,8 +155,20 @@ struct MemoPanelView: View {
                 openCanvas(for: memo)
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(memo.title)
-                        .font(.system(size: 13, weight: .medium))
+                    HStack(spacing: 4) {
+                        Text(memo.title)
+                            .font(.system(size: 13, weight: .medium))
+
+                        // メインのメモは呼び出しキーごと見せます。覚えていなくても押せます。
+                        if hotKeys.isMain(memo) {
+                            Text(hotKeys.configuration.prefix.displayName + " F")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(.quaternary, in: Capsule())
+                        }
+                    }
                     Text("\(memo.canvas.elements.count) オブジェクト")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -143,6 +179,24 @@ struct MemoPanelView: View {
             .buttonStyle(.plain)
 
             Menu {
+                Button("メインのメモにする") {
+                    hotKeys.setMain(memo)
+                }
+                .disabled(hotKeys.isMain(memo))
+
+                if memo.floatingOrigin == nil {
+                    Button("デスクトップに貼る") {
+                        floatingMemos.pin(memo)
+                    }
+                    .disabled(!floatingMemos.canPin(memo))
+                } else {
+                    Button("デスクトップからはがす") {
+                        floatingMemos.unpin(memo.id)
+                    }
+                }
+
+                Divider()
+
                 Button("削除", role: .destructive) {
                     memoPendingDeletion = memo
                 }
@@ -159,6 +213,14 @@ struct MemoPanelView: View {
 
     private var footer: some View {
         HStack {
+            Button("設定") {
+                openWindow(id: SettingsView.windowID)
+                NSApp.activate()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+
             Spacer()
 
             Button("qool を終了") {

@@ -5,7 +5,28 @@ import Testing
 
 /// 輪郭候補の生成と並び（[BuildCutoutCandidatesUseCase](../qool/Application/UseCases/Image/BuildCutoutCandidatesUseCase.swift)）の検証。
 struct CutoutCandidateTests {
-    private let buildCandidates = BuildCutoutCandidatesUseCase()
+    /// 被写体を見つけない抽出器。**Vision を通さないことで、幾何側の挙動だけを見ます。**
+    private struct NoSubjectExtractor: SubjectContourExtractorProtocol {
+        func extractContour(in image: CGImage, guidedBy guide: [CGPoint]) async -> [CGPoint]? { nil }
+    }
+
+    /// 決まった輪郭を返す抽出器。被写体マスクが載ったときの並びを確かめます。
+    private struct FixedSubjectExtractor: SubjectContourExtractorProtocol {
+        let contour: [CGPoint]
+
+        func extractContour(in image: CGImage, guidedBy guide: [CGPoint]) async -> [CGPoint]? { contour }
+    }
+
+    private let buildCandidates = BuildCutoutCandidatesUseCase(subjectContourExtractor: NoSubjectExtractor())
+
+    /// スタブは画像を見ないので、中身は何でも構いません。
+    private let dummyImage: CGImage = {
+        let context = CGContext(
+            data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        return context.makeImage()!
+    }()
 
     private func rectTrace(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, steps: Int = 20) -> [CGPoint] {
         var points: [CGPoint] = []
@@ -24,8 +45,8 @@ struct CutoutCandidateTests {
     }
 
     /// 抽出器が何も出さなくても、なぞった線で切り抜ける状態を保ちます。
-    @Test func 手描き候補は必ず末尾にある() {
-        let candidates = buildCandidates(tracePoints: circleTrace(radius: 0.3))
+    @Test func 手描き候補は必ず末尾にある() async {
+        let candidates = await buildCandidates(image: dummyImage, tracePoints: circleTrace(radius: 0.3))
 
         #expect(candidates.last?.source == nil)
         #expect(candidates.last?.displayName == "手描き")
@@ -33,8 +54,8 @@ struct CutoutCandidateTests {
     }
 
     /// 円のなぞりでは矩形補正が輪郭を作らないため、候補は手描きだけになります。
-    @Test func 円のなぞりでは候補は手描きだけ() {
-        let candidates = buildCandidates(tracePoints: circleTrace(radius: 0.3))
+    @Test func 円のなぞりでは候補は手描きだけ() async {
+        let candidates = await buildCandidates(image: dummyImage, tracePoints: circleTrace(radius: 0.3))
 
         #expect(candidates.count == 1)
         #expect(candidates[0].source == nil)
@@ -49,7 +70,7 @@ struct CutoutCandidateTests {
     ///
     /// 移植元と同じ挙動です（スコアリングの出力は 170 ケースで一致を確認済み）。
     /// 被写体マスクのようにガイドより内側へ収まる抽出器は、この足切りを通ります。
-    @Test func 矩形補正は輪郭になるがスコアリングで落ちる() throws {
+    @Test func 矩形補正は輪郭になるがスコアリングで落ちる() async throws {
         let guide = rectTrace(0.2, 0.2, 0.6, 0.6)
 
         let contour = try #require(RectangularGuideContour().detectContour(from: guide))
@@ -64,8 +85,8 @@ struct CutoutCandidateTests {
 
     /// **足切りされた候補も一覧に残します。** 自動で選ばれなかっただけで、手で選べば使えます。
     /// 消してしまうと「自動が外れても人間が選べる」という前提が崩れます。
-    @Test func 足切りされた候補もスコアなしで一覧に残る() throws {
-        let candidates = buildCandidates(tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
+    @Test func 足切りされた候補もスコアなしで一覧に残る() async throws {
+        let candidates = await buildCandidates(image: dummyImage, tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
 
         let rectangular = try #require(candidates.first { $0.source == .rectangularGuide })
         #expect(rectangular.score == nil)
@@ -74,8 +95,8 @@ struct CutoutCandidateTests {
     }
 
     /// スコアの付いた候補が先、付かない候補が後、手描きは最後です。
-    @Test func スコアのない候補は後ろへ並ぶ() {
-        let candidates = buildCandidates(tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
+    @Test func スコアのない候補は後ろへ並ぶ() async {
+        let candidates = await buildCandidates(image: dummyImage, tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
 
         #expect(candidates.count == 2)
         #expect(candidates[0].source == .rectangularGuide)
@@ -83,29 +104,29 @@ struct CutoutCandidateTests {
     }
 
     /// 推奨は常に1つだけです。
-    @Test func 推奨はちょうど1つ() {
+    @Test func 推奨はちょうど1つ() async {
         for trace in [rectTrace(0.2, 0.2, 0.6, 0.6), circleTrace(radius: 0.3)] {
-            let candidates = buildCandidates(tracePoints: trace)
+            let candidates = await buildCandidates(image: dummyImage, tracePoints: trace)
 
             #expect(candidates.count { $0.isRecommended } == 1)
         }
     }
 
     /// 抽出器が推奨を出せなければ、手描きが推奨になります。
-    @Test func 抽出器がなければ手描きが推奨になる() {
-        let candidates = buildCandidates(tracePoints: circleTrace(radius: 0.3))
+    @Test func 抽出器がなければ手描きが推奨になる() async {
+        let candidates = await buildCandidates(image: dummyImage, tracePoints: circleTrace(radius: 0.3))
 
         #expect(candidates.first { $0.isRecommended }?.source == nil)
     }
 
-    @Test func なぞりが短すぎれば候補は空() {
-        #expect(buildCandidates(tracePoints: []).isEmpty)
-        #expect(buildCandidates(tracePoints: [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.2, y: 0.2)]).isEmpty)
+    @Test func なぞりが短すぎれば候補は空() async {
+        #expect(await buildCandidates(image: dummyImage, tracePoints: []).isEmpty)
+        #expect(await buildCandidates(image: dummyImage, tracePoints: [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.2, y: 0.2)]).isEmpty)
     }
 
     /// 矩形補正は平滑化をかけないため、角がそのまま残ります。
-    @Test func 矩形補正の候補は角が保たれる() throws {
-        let candidates = buildCandidates(tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
+    @Test func 矩形補正の候補は角が保たれる() async throws {
+        let candidates = await buildCandidates(image: dummyImage, tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
         let rectangular = try #require(candidates.first { $0.source == .rectangularGuide })
         let points = try #require(rectangular.contours.first?.points)
 
@@ -116,15 +137,15 @@ struct CutoutCandidateTests {
     }
 
     /// 矩形と色矩形は平滑化をかけません。すでに直線的で、かけると角が丸まります。
-    @Test func 矩形系の抽出器だけ平滑化をかけない() {
+    @Test func 矩形系の抽出器だけ平滑化をかけない() async {
         #expect(ContourCandidateSource.rectangularGuide.smoothsContour == false)
         #expect(ContourCandidateSource.coloredRectangle.smoothsContour == false)
         #expect(ContourCandidateSource.subjectMask.smoothsContour)
     }
 
-    @Test func 候補の輪郭は正規化座標に収まる() {
+    @Test func 候補の輪郭は正規化座標に収まる() async {
         for trace in [rectTrace(0.2, 0.2, 0.6, 0.6), circleTrace(radius: 0.3)] {
-            for candidate in buildCandidates(tracePoints: trace) {
+            for candidate in await buildCandidates(image: dummyImage, tracePoints: trace) {
                 for contour in candidate.contours {
                     #expect(contour.points.allSatisfy { $0.x >= -0.001 && $0.x <= 1.001 })
                     #expect(contour.points.allSatisfy { $0.y >= -0.001 && $0.y <= 1.001 })
@@ -134,7 +155,7 @@ struct CutoutCandidateTests {
     }
 
     /// ガイドより内側に収まる候補は足切りを通ります（被写体マスクが該当します）。
-    @Test func ガイドの内側に収まる候補はスコアが付く() throws {
+    @Test func ガイドの内側に収まる候補はスコアが付く() async throws {
         let guide = rectTrace(0.2, 0.2, 0.6, 0.6)
         let inner = rectTrace(0.3, 0.3, 0.4, 0.4)
 
@@ -145,5 +166,33 @@ struct CutoutCandidateTests {
 
         #expect(scored.count == 1)
         #expect(try #require(scored.first).score > 0)
+    }
+
+    /// 被写体マスクが取れたときは、それが推奨になります（bias +0.55）。
+    @Test func 被写体マスクが取れれば推奨になる() async throws {
+        let guide = rectTrace(0.2, 0.2, 0.6, 0.6)
+        // 検出ベースの抽出器には面積比 0.55 以上が要ります（0.5*0.5 / 0.6*0.6 = 0.69）。
+        let build = BuildCutoutCandidatesUseCase(
+            subjectContourExtractor: FixedSubjectExtractor(contour: rectTrace(0.25, 0.25, 0.5, 0.5))
+        )
+
+        let candidates = await build(image: dummyImage, tracePoints: guide)
+
+        let subject = try #require(candidates.first { $0.source == .subjectMask })
+        #expect(subject.isRecommended)
+        #expect(subject.score != nil)
+        #expect(candidates.first?.source == .subjectMask)
+    }
+
+    /// 被写体マスクは平滑化をかけて表示します。
+    @Test func 被写体マスクの候補は平滑化される() async throws {
+        let rough = rectTrace(0.3, 0.3, 0.4, 0.4, steps: 6)
+        let build = BuildCutoutCandidatesUseCase(subjectContourExtractor: FixedSubjectExtractor(contour: rough))
+
+        let candidates = await build(image: dummyImage, tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
+
+        let subject = try #require(candidates.first { $0.source == .subjectMask })
+        // 平滑化は densify を含むため、点が増えます。
+        #expect(try #require(subject.contours.first).points.count > rough.count)
     }
 }

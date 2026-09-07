@@ -23,6 +23,12 @@ nonisolated struct ContourGeometry {
     }
 
     func polygonArea(_ points: [CGPoint]) -> CGFloat {
+        abs(signedArea(points))
+    }
+
+    /// 符号付き面積。**向きを見るために使います。** 面の外周と穴は向きが逆になるので、
+    /// 符号を比べればどちらなのかが分かります。
+    func signedArea(_ points: [CGPoint]) -> CGFloat {
         guard points.count >= 3 else {
             return 0
         }
@@ -35,7 +41,7 @@ nonisolated struct ContourGeometry {
             area += current.x * next.y - next.x * current.y
         }
 
-        return abs(area / 2)
+        return area / 2
     }
 
     /// `rect` のうち `otherRect` と重なっている割合。

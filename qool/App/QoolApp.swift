@@ -9,18 +9,28 @@ struct QoolApp: App {
     var body: some Scene {
         // メニューバー項目。Dock には出さない（Info.plist の LSUIElement）。
         MenuBarExtra {
-            MemoPanelView(viewModel: appDelegate.viewModel)
-                .preferredColorScheme(.light)
+            MemoPanelView(
+                viewModel: appDelegate.viewModel,
+                floatingMemos: appDelegate.floatingMemos,
+                hotKeys: appDelegate.hotKeys
+            )
+            .preferredColorScheme(.light)
         } label: {
-            Image(systemName: "square.on.square.dashed")
+            MenuBarLabel(viewModel: appDelegate.viewModel)
         }
         .menuBarExtraStyle(.window)
 
-        // S5。パネル内で画面遷移せず、**別ウィンドウ**で開きます。
+        // パネル内で画面遷移せず、**別ウィンドウ**で開きます。
         WindowGroup(for: Memo.ID.self) { $memoID in
             CanvasWindowView(memoID: memoID, rootViewModel: appDelegate.viewModel)
                 .preferredColorScheme(.light)
         }
         .defaultSize(width: 1000, height: 700)
+
+        Window("qool の設定", id: SettingsView.windowID) {
+            SettingsView(hotKeys: appDelegate.hotKeys, settings: appDelegate.viewModel.settings)
+                .preferredColorScheme(.light)
+        }
+        .windowResizability(.contentSize)
     }
 }

@@ -3,6 +3,8 @@ import Foundation
 import iOverlay
 
 nonisolated struct UnionCanvasElementsUseCase {
+    private let polygons = CanvasElementPolygons()
+
     init() {}
 
     func callAsFunction(
@@ -19,7 +21,7 @@ nonisolated struct UnionCanvasElementsUseCase {
         var firstPath = true
 
         for element in unionableElements {
-            let paths = polygonPaths(for: element)
+            let paths = polygons.filled(for: element)
             guard !paths.isEmpty else {
                 continue
             }
@@ -54,190 +56,6 @@ nonisolated struct UnionCanvasElementsUseCase {
         case .line, .text, .imageCutout:
             return false
         }
-    }
-
-    private func polygonPaths(for element: CanvasElement) -> [[CGPoint]] {
-        switch element.kind {
-        case .rectangle:
-            return [rectanglePathPoints(for: element)]
-        case .path:
-            if !element.pathContours.isEmpty {
-                return element.pathContours
-                    .filter(\.isClosed)
-                    .map { contour in
-                        contour.points.map { absolutePoint($0, in: element.frame) }
-                    }
-                    .filter { $0.count >= 3 }
-            }
-
-            return [sampledPathPoints(for: element)]
-                .filter { $0.count >= 3 }
-        case .line, .text, .imageCutout:
-            return []
-        }
-    }
-
-    private func rectanglePathPoints(for element: CanvasElement) -> [CGPoint] {
-        let frame = element.frame
-        let radius = min(max(element.cornerRadius, 0), min(frame.width, frame.height) / 2)
-        guard radius > 0 else {
-            return [
-                CGPoint(x: frame.minX, y: frame.minY),
-                CGPoint(x: frame.maxX, y: frame.minY),
-                CGPoint(x: frame.maxX, y: frame.maxY),
-                CGPoint(x: frame.minX, y: frame.maxY)
-            ]
-        }
-
-        let segmentCount = max(6, min(16, Int(radius / 3)))
-        var points: [CGPoint] = []
-        points.reserveCapacity(segmentCount * 4)
-
-        appendArcPoints(
-            to: &points,
-            center: CGPoint(x: frame.maxX - radius, y: frame.minY + radius),
-            radius: radius,
-            startAngle: -.pi / 2,
-            endAngle: 0,
-            segmentCount: segmentCount
-        )
-        appendArcPoints(
-            to: &points,
-            center: CGPoint(x: frame.maxX - radius, y: frame.maxY - radius),
-            radius: radius,
-            startAngle: 0,
-            endAngle: .pi / 2,
-            segmentCount: segmentCount
-        )
-        appendArcPoints(
-            to: &points,
-            center: CGPoint(x: frame.minX + radius, y: frame.maxY - radius),
-            radius: radius,
-            startAngle: .pi / 2,
-            endAngle: .pi,
-            segmentCount: segmentCount
-        )
-        appendArcPoints(
-            to: &points,
-            center: CGPoint(x: frame.minX + radius, y: frame.minY + radius),
-            radius: radius,
-            startAngle: .pi,
-            endAngle: .pi * 1.5,
-            segmentCount: segmentCount
-        )
-
-        return points
-    }
-
-    private func appendArcPoints(
-        to points: inout [CGPoint],
-        center: CGPoint,
-        radius: CGFloat,
-        startAngle: CGFloat,
-        endAngle: CGFloat,
-        segmentCount: Int
-    ) {
-        for step in 0...segmentCount {
-            if !points.isEmpty, step == 0 {
-                continue
-            }
-
-            let progress = CGFloat(step) / CGFloat(segmentCount)
-            let angle = startAngle + (endAngle - startAngle) * progress
-            points.append(CGPoint(
-                x: center.x + cos(angle) * radius,
-                y: center.y + sin(angle) * radius
-            ))
-        }
-    }
-
-    private func sampledPathPoints(for element: CanvasElement) -> [CGPoint] {
-        let points = element.pathPoints.map { absolutePoint($0, in: element.frame) }
-        guard let firstPoint = points.first else {
-            return []
-        }
-
-        guard points.count > 2 else {
-            return points
-        }
-
-        var sampledPoints: [CGPoint] = [firstPoint]
-        var currentPoint = firstPoint
-
-        for index in 1..<points.count {
-            let endPoint: CGPoint
-            let controlPoint: CGPoint
-
-            if index == points.count - 1 {
-                endPoint = points[index]
-                controlPoint = points[index - 1]
-            } else {
-                endPoint = CGPoint(
-                    x: (points[index].x + points[index + 1].x) / 2,
-                    y: (points[index].y + points[index + 1].y) / 2
-                )
-                controlPoint = points[index]
-            }
-
-            sampledPoints.append(contentsOf: sampleQuadCurve(
-                from: currentPoint,
-                control: controlPoint,
-                to: endPoint
-            ))
-            currentPoint = endPoint
-        }
-
-        guard element.isClosedPath else {
-            return sampledPoints
-        }
-
-        let lastPoint = points[points.count - 1]
-        let closingMidpoint = CGPoint(
-            x: (lastPoint.x + firstPoint.x) / 2,
-            y: (lastPoint.y + firstPoint.y) / 2
-        )
-
-        sampledPoints.append(contentsOf: sampleQuadCurve(
-            from: currentPoint,
-            control: lastPoint,
-            to: closingMidpoint
-        ))
-        sampledPoints.append(contentsOf: sampleQuadCurve(
-            from: closingMidpoint,
-            control: firstPoint,
-            to: firstPoint
-        ))
-
-        if let lastSample = sampledPoints.last, distance(from: lastSample, to: firstPoint) < 0.5 {
-            sampledPoints.removeLast()
-        }
-
-        return sampledPoints
-    }
-
-    private func sampleQuadCurve(from startPoint: CGPoint, control: CGPoint, to endPoint: CGPoint) -> [CGPoint] {
-        let sampleCount = max(10, min(32, Int(distance(from: startPoint, to: endPoint) / 8)))
-        var points: [CGPoint] = []
-        points.reserveCapacity(sampleCount)
-
-        for step in 1...sampleCount {
-            let t = CGFloat(step) / CGFloat(sampleCount)
-            let inverseT = 1 - t
-
-            let startWeight = inverseT * inverseT
-            let controlWeight = 2 * inverseT * t
-            let endWeight = t * t
-
-            let x = startWeight * startPoint.x + controlWeight * control.x + endWeight * endPoint.x
-            let y = startWeight * startPoint.y + controlWeight * control.y + endWeight * endPoint.y
-            points.append(CGPoint(x: x, y: y))
-        }
-
-        return points
-    }
-
-    private func distance(from startPoint: CGPoint, to endPoint: CGPoint) -> CGFloat {
-        hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y)
     }
 
     private func makeElement(
@@ -286,13 +104,6 @@ nonisolated struct UnionCanvasElementsUseCase {
             pathContours: contours,
             isClosedPath: true,
             unionSourceElements: sourceElements.map(CanvasElementSnapshot.init)
-        )
-    }
-
-    private func absolutePoint(_ point: NormalizedPoint, in frame: CGRect) -> CGPoint {
-        CGPoint(
-            x: frame.minX + frame.width * CGFloat(point.x),
-            y: frame.minY + frame.height * CGFloat(point.y)
         )
     }
 
