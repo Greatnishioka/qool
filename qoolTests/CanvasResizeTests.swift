@@ -142,4 +142,90 @@ struct CanvasResizeTests {
         // 回転前の位置は、もう角ではありません。
         #expect(resize.corner(at: CGPoint(x: 300, y: 200), of: original) == nil)
     }
+
+    // MARK: - 縦横比の維持
+
+    /// ⇧ を押している間は元の比を保ちます。
+    @Test func 比を保つと元の縦横比のままになる() {
+        let original = element()
+        let ratio = original.frame.width / original.frame.height
+
+        let frame = resize(
+            original,
+            corner: .bottomTrailing,
+            to: CGPoint(x: 500, y: 130),
+            preservingAspectRatio: true
+        )
+
+        #expect(abs(frame.width / frame.height - ratio) < 0.0001)
+    }
+
+    /// **伸びが大きいほうの軸に合わせます。**
+    /// 横に 2 倍、縦に 1.2 倍の位置なら、2 倍のほうを採ります。
+    @Test func 比を保つときは伸びの大きい軸に合わせる() {
+        let original = element()
+        let anchor = original.frame.origin
+
+        let frame = resize(
+            original,
+            corner: .bottomTrailing,
+            to: CGPoint(x: anchor.x + 400, y: anchor.y + 120),
+            preservingAspectRatio: true
+        )
+
+        #expect(abs(frame.width - 400) < 0.0001)
+        #expect(abs(frame.height - 200) < 0.0001)
+    }
+
+    @Test func 比を保っても対角は動かない() {
+        let original = element()
+
+        let frame = resize(
+            original,
+            corner: .topLeading,
+            to: CGPoint(x: 10, y: 20),
+            preservingAspectRatio: true
+        )
+
+        #expect(abs(frame.maxX - original.frame.maxX) < 0.0001)
+        #expect(abs(frame.maxY - original.frame.maxY) < 0.0001)
+    }
+
+    /// 下限まで縮めても比は崩しません。幅と高さを別々に丸めると崩れます。
+    @Test func 比を保ったまま最小まで縮む() {
+        let original = element()
+        let ratio = original.frame.width / original.frame.height
+
+        let frame = resize(
+            original,
+            corner: .bottomTrailing,
+            to: original.frame.origin,
+            preservingAspectRatio: true
+        )
+
+        #expect(abs(frame.width / frame.height - ratio) < 0.0001)
+        #expect(frame.width >= ResizeCanvasElementUseCase.minimumSize)
+        #expect(frame.height >= ResizeCanvasElementUseCase.minimumSize)
+    }
+
+    @Test func 回転していても比を保てる() {
+        let original = element(rotation: 25)
+        let ratio = original.frame.width / original.frame.height
+        let anchor = screenCorner(.topLeading, of: original)
+
+        let frame = resize(
+            original,
+            corner: .bottomTrailing,
+            to: CGPoint(x: 420, y: 300),
+            preservingAspectRatio: true
+        )
+        var updated = original
+        updated.frame = frame
+
+        #expect(abs(frame.width / frame.height - ratio) < 0.0001)
+
+        let movedAnchor = screenCorner(.topLeading, of: updated)
+        #expect(abs(movedAnchor.x - anchor.x) < 0.0001)
+        #expect(abs(movedAnchor.y - anchor.y) < 0.0001)
+    }
 }

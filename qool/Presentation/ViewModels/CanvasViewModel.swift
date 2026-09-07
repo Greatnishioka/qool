@@ -400,16 +400,36 @@ final class CanvasViewModel: ObservableObject {
     }
 
     /// 変形中の見た目。**確定前なので要素は変えません。**
-    func resizedFrame(of elementID: CanvasElement.ID, corner: CanvasResizeCorner, to point: CGPoint) -> CGRect? {
+    func resizedFrame(
+        of elementID: CanvasElement.ID,
+        corner: CanvasResizeCorner,
+        to point: CGPoint,
+        preservingAspectRatio: Bool = false
+    ) -> CGRect? {
         guard let element = memo.canvas.elements.first(where: { $0.id == elementID }) else {
             return nil
         }
 
-        return resizeElementUseCase(element, corner: corner, to: point)
+        return resizeElementUseCase(
+            element,
+            corner: corner,
+            to: point,
+            preservingAspectRatio: preservingAspectRatio
+        )
     }
 
-    func resizeElement(id elementID: CanvasElement.ID, corner: CanvasResizeCorner, to point: CGPoint) {
-        guard let frame = resizedFrame(of: elementID, corner: corner, to: point) else {
+    func resizeElement(
+        id elementID: CanvasElement.ID,
+        corner: CanvasResizeCorner,
+        to point: CGPoint,
+        preservingAspectRatio: Bool = false
+    ) {
+        guard let frame = resizedFrame(
+            of: elementID,
+            corner: corner,
+            to: point,
+            preservingAspectRatio: preservingAspectRatio
+        ) else {
             return
         }
 

@@ -152,8 +152,14 @@ struct CanvasSurface: View {
             dragTarget = .marquee(start: start, current: value.location)
         }
 
-        if case let .resizing(elementID, corner, _) = dragTarget {
-            dragTarget = .resizing(elementID: elementID, corner: corner, current: value.location)
+        if case let .resizing(elementID, corner, _, _) = dragTarget {
+            // ⇧ は押し直しが効くよう、動かすたびに見ます。
+            dragTarget = .resizing(
+                elementID: elementID,
+                corner: corner,
+                current: value.location,
+                preservesAspectRatio: isShiftPressed
+            )
         }
     }
 
@@ -161,7 +167,12 @@ struct CanvasSurface: View {
         // **角の掴み手を先に見ます。** 角は要素の上にも乗っているので、
         // 要素の当たり判定を先にすると、掴んでも移動になります。
         if let grabbed = viewModel.resizeCorner(at: startLocation) {
-            return .resizing(elementID: grabbed.elementID, corner: grabbed.corner, current: current)
+            return .resizing(
+                elementID: grabbed.elementID,
+                corner: grabbed.corner,
+                current: current,
+                preservesAspectRatio: isShiftPressed
+            )
         }
 
         if let hitUnionSourceID = viewModel.unionSourceID(at: startLocation) {
@@ -173,7 +184,7 @@ struct CanvasSurface: View {
             return .marquee(start: startLocation, current: current)
         }
 
-        if isShiftSelectionActive {
+        if isShiftPressed {
             return .toggling(hitElementID)
         }
 
@@ -221,9 +232,15 @@ struct CanvasSurface: View {
                 }
             }
 
-        case let .resizing(elementID, corner, _):
+        case let .resizing(elementID, corner, current, preservesAspectRatio):
             if hasMoved(value) {
-                viewModel.resizeElement(id: elementID, corner: corner, to: value.location)
+                // 見えていた形をそのまま確定します。離す瞬間の ⇧ で結果が変わらないように。
+                viewModel.resizeElement(
+                    id: elementID,
+                    corner: corner,
+                    to: current,
+                    preservingAspectRatio: preservesAspectRatio
+                )
             }
 
         case let .marquee(start, _):
@@ -242,9 +259,14 @@ struct CanvasSurface: View {
 
     /// 変形中だけ、確定前の枠を当てた要素を返します。
     private func resizingPreview(of element: CanvasElement) -> CanvasElement {
-        guard case let .resizing(elementID, corner, current) = dragTarget,
+        guard case let .resizing(elementID, corner, current, preservesAspectRatio) = dragTarget,
               elementID == element.id,
-              let frame = viewModel.resizedFrame(of: elementID, corner: corner, to: current) else {
+              let frame = viewModel.resizedFrame(
+                  of: elementID,
+                  corner: corner,
+                  to: current,
+                  preservingAspectRatio: preservesAspectRatio
+              ) else {
             return element
         }
 
@@ -283,7 +305,9 @@ struct CanvasSurface: View {
 
     /// macOS では修飾キーの現在値をいつでも読めるため、状態を持ちません。
     /// iOS では `UIPress` を拾うために専用の responder が要りました。
-    private var isShiftSelectionActive: Bool {
+    /// ⇧ の押下。選択の反転と、変形中の縦横比の維持に使います。
+    /// **状態を持たずに都度見ます。** ドラッグの途中で押し直しても効かせるためです。
+    private var isShiftPressed: Bool {
         NSEvent.modifierFlags.contains(.shift)
     }
 

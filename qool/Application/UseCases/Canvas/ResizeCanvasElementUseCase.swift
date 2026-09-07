@@ -3,8 +3,8 @@ import Foundation
 
 /// 角を掴んで要素の大きさを変える。
 ///
-/// **縦横比は保ちません。** Photoshop の自由変形と同じで、掴んだ角の対角を固定したまま
-/// 縦と横が独立に伸び縮みします。
+/// **既定では縦横比を保ちません。** Photoshop の自由変形と同じで、掴んだ角の対角を
+/// 固定したまま縦と横が独立に伸び縮みします。⇧ を押している間だけ比を保ちます。
 ///
 /// **回転したまま変形します。** 伸ばす向きは画面の縦横ではなく要素自身の軸なので、
 /// 斜めに置いた要素も、見たとおりの向きに伸びます。
@@ -18,10 +18,13 @@ nonisolated struct ResizeCanvasElementUseCase {
     init() {}
 
     /// 掴んだ角を `point` まで動かしたときの新しい枠。
+    ///
+    /// - Parameter preservingAspectRatio: 元の縦横比を保つか（⇧ を押している間）。
     func callAsFunction(
         _ element: CanvasElement,
         corner: CanvasResizeCorner,
-        to point: CGPoint
+        to point: CGPoint,
+        preservingAspectRatio: Bool = false
     ) -> CGRect {
         let center = CGPoint(x: element.frame.midX, y: element.frame.midY)
         let radians = element.rotationAngleDegrees * .pi / 180
@@ -30,11 +33,12 @@ nonisolated struct ResizeCanvasElementUseCase {
         let anchor = rotated(corner.opposite.point(in: element.frame), around: center, by: radians)
 
         // 固定した角から掴んだ点までを、要素の座標系へ戻します。
-        let diagonal = rotated(
+        let dragged = rotated(
             CGPoint(x: point.x - anchor.x, y: point.y - anchor.y),
             around: .zero,
             by: -radians
         )
+        let diagonal = preservingAspectRatio ? aspectLocked(dragged, in: element.frame) : dragged
 
         let width = max(Self.minimumSize, abs(diagonal.x))
         let height = max(Self.minimumSize, abs(diagonal.y))
@@ -52,6 +56,28 @@ nonisolated struct ResizeCanvasElementUseCase {
             y: anchor.y + half.y - height / 2,
             width: width,
             height: height
+        )
+    }
+
+    /// 縦横比を保ったときの対角ベクトル。
+    ///
+    /// **伸びが大きいほうの軸に合わせます。** 小さいほうに合わせると、
+    /// 指を遠ざけているのに縮む向きが出て、掴んでいる感じがなくなります。
+    private func aspectLocked(_ diagonal: CGPoint, in frame: CGRect) -> CGPoint {
+        guard frame.width > 0, frame.height > 0 else {
+            return diagonal
+        }
+
+        // 倍率で下限を掛けます。幅と高さを別々に丸めると比が崩れます。
+        let minimumScale = max(Self.minimumSize / frame.width, Self.minimumSize / frame.height)
+        let scale = max(
+            minimumScale,
+            max(abs(diagonal.x) / frame.width, abs(diagonal.y) / frame.height)
+        )
+
+        return CGPoint(
+            x: (diagonal.x < 0 ? -1 : 1) * frame.width * scale,
+            y: (diagonal.y < 0 ? -1 : 1) * frame.height * scale
         )
     }
 
