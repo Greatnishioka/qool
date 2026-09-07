@@ -69,7 +69,7 @@ struct CanvasSurface: View {
     private var elementLayer: some View {
         ForEach(elements) { element in
             CanvasElementView(
-                element: element,
+                element: resizingPreview(of: element),
                 isSelected: selectedElementIDs.contains(element.id),
                 image: viewModel.image(for: element)
             )
@@ -151,9 +151,19 @@ struct CanvasSurface: View {
         if case let .marquee(start, _) = dragTarget {
             dragTarget = .marquee(start: start, current: value.location)
         }
+
+        if case let .resizing(elementID, corner, _) = dragTarget {
+            dragTarget = .resizing(elementID: elementID, corner: corner, current: value.location)
+        }
     }
 
     private func makeDragTarget(at startLocation: CGPoint, current: CGPoint) -> CanvasDragTarget {
+        // **角の掴み手を先に見ます。** 角は要素の上にも乗っているので、
+        // 要素の当たり判定を先にすると、掴んでも移動になります。
+        if let grabbed = viewModel.resizeCorner(at: startLocation) {
+            return .resizing(elementID: grabbed.elementID, corner: grabbed.corner, current: current)
+        }
+
         if let hitUnionSourceID = viewModel.unionSourceID(at: startLocation) {
             viewModel.selectUnionSource(id: hitUnionSourceID)
             return .unionSource(hitUnionSourceID)
@@ -211,6 +221,11 @@ struct CanvasSurface: View {
                 }
             }
 
+        case let .resizing(elementID, corner, _):
+            if hasMoved(value) {
+                viewModel.resizeElement(id: elementID, corner: corner, to: value.location)
+            }
+
         case let .marquee(start, _):
             let selectionFrame = normalizedFrame(from: start, to: value.location)
             if selectionFrame.width >= Threshold.marqueeMinimum
@@ -223,6 +238,20 @@ struct CanvasSurface: View {
         case .none:
             viewModel.clearSelection()
         }
+    }
+
+    /// 変形中だけ、確定前の枠を当てた要素を返します。
+    private func resizingPreview(of element: CanvasElement) -> CanvasElement {
+        guard case let .resizing(elementID, corner, current) = dragTarget,
+              elementID == element.id,
+              let frame = viewModel.resizedFrame(of: elementID, corner: corner, to: current) else {
+            return element
+        }
+
+        var preview = element
+        preview.frame = frame
+
+        return preview
     }
 
     private func dragOffset(for elementID: CanvasElement.ID) -> CGSize {
