@@ -9,6 +9,16 @@ import Testing
 /// （モデルの出力を再現できない）、性質と座標系だけを押さえます。
 struct SubjectMaskExtractorTests {
     private let extractor = SubjectMaskExtractorInfrastructure()
+    private let deriver = MaskContourDeriverInfrastructure()
+
+    /// マスクから輪郭を導く。**抽出器はマスクを返すので、位置を測るには導出が要ります。**
+    private func contour(in image: CGImage, guidedBy guide: [CGPoint]) async -> [CGPoint]? {
+        guard let mask = await extractor.extractMask(in: image, guidedBy: guide) else {
+            return nil
+        }
+
+        return deriver.contours(from: mask, threshold: 128).first
+    }
 
     /// 被写体らしい塊を 1 つ置いた画像。`CGContext` は左下原点なので、
     /// `y` を大きく取ると画像の上側に出ます。
@@ -47,12 +57,42 @@ struct SubjectMaskExtractorTests {
         return points
     }
 
-    @Test func 被写体を囲むと輪郭が返る() async throws {
-        let contour = await extractor.extractContour(in: makeImage(subjectAtTop: true), guidedBy: guide(top: 0.05, height: 0.45))
+    @Test func 被写体を囲むとマスクが返る() async throws {
+        let mask = await extractor.extractMask(
+            in: makeImage(subjectAtTop: true),
+            guidedBy: guide(top: 0.05, height: 0.45)
+        )
 
-        let points = try #require(contour)
+        let found = try #require(mask)
+        let filled = found.coverage.filter { $0 > 128 }.count
+
+        #expect(filled > 0)
+        #expect(filled < found.coverage.count)
+    }
+
+    /// **しきい値を掛けずに返すことの確認。** 縁に中間の被覆率が残っていれば、
+    /// 半透明を表現できる形になっています。
+    @Test func 縁には中間の被覆率が残る() async throws {
+        let mask = try #require(
+            await extractor.extractMask(
+                in: makeImage(subjectAtTop: true),
+                guidedBy: guide(top: 0.05, height: 0.45)
+            )
+        )
+
+        let partial = mask.coverage.filter { $0 > 0 && $0 < 255 }.count
+
+        #expect(partial > 0)
+    }
+
+    @Test func 導いた輪郭は正規化座標に収まる() async throws {
+        let points = try #require(
+            await contour(in: makeImage(subjectAtTop: true), guidedBy: guide(top: 0.05, height: 0.45))
+        )
+        let outside = points.filter { $0.x < 0 || $0.x > 1 || $0.y < 0 || $0.y > 1 }
+
         #expect(points.count >= 8)
-        #expect(points.allSatisfy { $0.x >= 0 && $0.x <= 1 && $0.y >= 0 && $0.y <= 1 })
+        #expect(outside.isEmpty)
     }
 
     /// **なぞりの座標系（左上原点）と Vision の座標系が一致していることの確認。**
@@ -65,29 +105,31 @@ struct SubjectMaskExtractorTests {
         let lowerGuide = guide(top: 0.55, height: 0.4)
 
         // 上に被写体 → 上をなぞれば取れ、下をなぞれば取れない
-        #expect(await extractor.extractContour(in: topImage, guidedBy: upperGuide) != nil)
-        #expect(await extractor.extractContour(in: topImage, guidedBy: lowerGuide) == nil)
+        #expect(await extractor.extractMask(in: topImage, guidedBy: upperGuide) != nil)
+        #expect(await extractor.extractMask(in: topImage, guidedBy: lowerGuide) == nil)
 
         // 下に被写体 → 逆になる
         let bottomImage = makeImage(subjectAtTop: false)
-        #expect(await extractor.extractContour(in: bottomImage, guidedBy: lowerGuide) != nil)
-        #expect(await extractor.extractContour(in: bottomImage, guidedBy: upperGuide) == nil)
+        #expect(await extractor.extractMask(in: bottomImage, guidedBy: lowerGuide) != nil)
+        #expect(await extractor.extractMask(in: bottomImage, guidedBy: upperGuide) == nil)
     }
 
-    /// 輪郭はなぞりの周辺に収まります（なぞりの外側 0.05 まで見ます）。
+    /// 輪郭はなぞりの周辺に収まります。なぞりの内側にある被写体だけを選ぶためです。
     @Test func 輪郭はなぞりの近くに収まる() async throws {
         let guidePoints = guide(top: 0.05, height: 0.45)
-        let contour = try #require(await extractor.extractContour(in: makeImage(subjectAtTop: true), guidedBy: guidePoints))
+        let points = try #require(await contour(in: makeImage(subjectAtTop: true), guidedBy: guidePoints))
 
         let bounds = ContourGeometry().bounds(for: guidePoints).insetBy(dx: -0.05, dy: -0.05)
-        #expect(contour.allSatisfy { bounds.contains($0) })
+        let outside = points.filter { !bounds.contains($0) }
+
+        #expect(outside.isEmpty)
     }
 
     @Test func 点が少なすぎるなぞりでは何も返さない() async {
         let image = makeImage(subjectAtTop: true)
 
-        #expect(await extractor.extractContour(in: image, guidedBy: []) == nil)
-        #expect(await extractor.extractContour(in: image, guidedBy: [CGPoint(x: 0.4, y: 0.4), CGPoint(x: 0.6, y: 0.6)]) == nil)
+        #expect(await extractor.extractMask(in: image, guidedBy: []) == nil)
+        #expect(await extractor.extractMask(in: image, guidedBy: [CGPoint(x: 0.4, y: 0.4), CGPoint(x: 0.6, y: 0.6)]) == nil)
     }
 
     /// 被写体のない画像では何も返しません。
@@ -100,6 +142,6 @@ struct SubjectMaskExtractorTests {
         context.setFillColor(CGColor(red: 0.93, green: 0.93, blue: 0.95, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: size, height: size))
 
-        #expect(await extractor.extractContour(in: context.makeImage()!, guidedBy: guide(top: 0.2, height: 0.6)) == nil)
+        #expect(await extractor.extractMask(in: context.makeImage()!, guidedBy: guide(top: 0.2, height: 0.6)) == nil)
     }
 }

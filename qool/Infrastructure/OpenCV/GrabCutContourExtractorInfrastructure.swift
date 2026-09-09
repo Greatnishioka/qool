@@ -10,16 +10,13 @@ import opencv2
 ///
 /// なぞり線をそのまま種として渡すのが要点です。矩形で初期化する使い方もありますが、
 /// **なぞりの形を捨てるとカップの取っ手のような凹みが最初から埋まります。**
-nonisolated struct GrabCutContourExtractorInfrastructure: SubjectContourExtractorProtocol {
+nonisolated struct GrabCutContourExtractorInfrastructure: CutoutMaskExtractorProtocol {
     /// 反復回数。増やすほど精度が上がりますが、その分遅くなります。
     private static let iterationCount: Int32 = 4
 
     /// 長辺をこの画素数まで縮めてから解きます。
     /// **原寸のままだと数秒かかります。** 輪郭は縮小しても十分な精度で取れます。
     private static let workingLongSide: Int32 = 512
-
-    /// 輪郭として成立する最小の点数。
-    private static let minimumPointCount = 8
 
     /// なぞりの外側にも背景と決めつけない余地を残す幅（正規化）。
     private static let guideMargin: CGFloat = 0.04
@@ -28,7 +25,7 @@ nonisolated struct GrabCutContourExtractorInfrastructure: SubjectContourExtracto
 
     init() {}
 
-    func extractContour(in image: CGImage, guidedBy guide: [CGPoint]) async -> [CGPoint]? {
+    func extractMask(in image: CGImage, guidedBy guide: [CGPoint]) async -> CutoutMask? {
         guard guide.count >= 3 else {
             return nil
         }
@@ -56,7 +53,7 @@ nonisolated struct GrabCutContourExtractorInfrastructure: SubjectContourExtracto
             mode: GrabCutModes.GC_INIT_WITH_MASK.rawValue
         )
 
-        return contour(from: mask, guidedBy: guide)
+        return cutoutMask(from: mask)
     }
 
     /// 長辺を `workingLongSide` に収めた画像。小さければそのまま使います。
@@ -127,8 +124,11 @@ nonisolated struct GrabCutContourExtractorInfrastructure: SubjectContourExtracto
         return mask
     }
 
-    /// `grabCut` の結果から輪郭を取り出し、なぞりに最も合う 1 本を返す。
-    private func contour(from mask: Mat, guidedBy guide: [CGPoint]) -> [CGPoint]? {
+    /// `grabCut` の結果を被覆率へ直す。
+    ///
+    /// **2 値です。** `grabCut` は前景か背景かしか返さないので、
+    /// Vision のマスクのような縁の半透明は持ちません。
+    private func cutoutMask(from mask: Mat) -> CutoutMask? {
         // 前景は「確定」と「たぶん」の 2 つ。どちらも残します。
         let foreground = Mat()
         let probableForeground = Mat()
@@ -140,30 +140,29 @@ nonisolated struct GrabCutContourExtractorInfrastructure: SubjectContourExtracto
         let binary = Mat()
         Core.bitwise_or(src1: foreground, src2: probableForeground, dst: binary)
 
-        var contours: [[Point2i]] = []
-        Imgproc.findContours(
-            image: binary,
-            contours: &contours,
-            hierarchy: Mat(),
-            mode: .RETR_EXTERNAL,
-            // **点を畳みません。** 畳むと四角い被写体が 4 点になり、
-            // 点数の下限で弾かれます。`ContourSmoother` も密な点列を前提にしています。
-            // 間引きは後段の `ContourSimplifier` が担当します。
-            method: .CHAIN_APPROX_NONE
-        )
+        let width = Int(binary.cols())
+        let height = Int(binary.rows())
 
-        let width = CGFloat(mask.cols())
-        let height = CGFloat(mask.rows())
-        let guideBounds = geometry.bounds(for: guide)
+        guard width > 0, height > 0 else {
+            return nil
+        }
 
-        return contours
-            .map { points in
-                points.map { CGPoint(x: CGFloat($0.x) / width, y: CGFloat($0.y) / height) }
+        var coverage = [UInt8](repeating: 0, count: width * height)
+
+        for row in 0..<height {
+            var values = [UInt8](repeating: 0, count: width)
+
+            guard (try? binary.get(row: Int32(row), col: 0, data: &values)) != nil else {
+                continue
             }
-            .filter { $0.count >= Self.minimumPointCount }
-            .max { first, second in
-                geometry.overlapRatio(geometry.bounds(for: first), with: guideBounds)
-                    < geometry.overlapRatio(geometry.bounds(for: second), with: guideBounds)
+
+            for column in 0..<width {
+                // **`Mat.get` は符号付きで返します。** そのまま丸めると 255 が -1 になり、
+                // マスク全体が空になります。ビット列として読み替えます。
+                coverage[row * width + column] = UInt8(min(255, max(0, values[column])))
             }
+        }
+
+        return CutoutMask(width: width, height: height, coverage: coverage)
     }
 }

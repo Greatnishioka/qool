@@ -84,6 +84,70 @@ nonisolated struct CutoutMaskFilters {
         )
     }
 
+    /// 画素数を変えたマスク。**覆う範囲は変わりません。**
+    ///
+    /// 抽出器は元画像の画素数でマスクを返しますが、表示に必要な細かさはそれより
+    /// ずっと粗いことがあります（[#16](https://github.com/Greatnishioka/qool/issues/16)）。
+    func resized(_ mask: CutoutMask, width: Int, height: Int) -> CutoutMask? {
+        guard width > 0, height > 0 else {
+            return nil
+        }
+
+        guard width != mask.width || height != mask.height else {
+            return mask
+        }
+
+        let (pixelCount, overflowed) = width.multipliedReportingOverflow(by: height)
+        guard !overflowed else {
+            return nil
+        }
+
+        var coverage = [UInt8](repeating: 0, count: pixelCount)
+        var source = mask.coverage
+
+        let drawn: Bool = source.withUnsafeMutableBytes { sourceBuffer in
+            guard let sourceAddress = sourceBuffer.baseAddress,
+                  let sourceContext = CGContext(
+                      data: sourceAddress,
+                      width: mask.width,
+                      height: mask.height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: mask.width,
+                      space: CGColorSpaceCreateDeviceGray(),
+                      bitmapInfo: CGImageAlphaInfo.none.rawValue
+                  ),
+                  let image = sourceContext.makeImage() else {
+                return false
+            }
+
+            return coverage.withUnsafeMutableBytes { destination in
+                guard let destinationAddress = destination.baseAddress,
+                      let context = CGContext(
+                          data: destinationAddress,
+                          width: width,
+                          height: height,
+                          bitsPerComponent: 8,
+                          bytesPerRow: width,
+                          space: CGColorSpaceCreateDeviceGray(),
+                          bitmapInfo: CGImageAlphaInfo.none.rawValue
+                      ) else {
+                    return false
+                }
+
+                context.interpolationQuality = .high
+                context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+                return true
+            }
+        }
+
+        guard drawn else {
+            return nil
+        }
+
+        return CutoutMask(extent: mask.extent, width: width, height: height, coverage: coverage)
+    }
+
     // MARK: - 最大値フィルタ
 
     /// **確保を使い回します。** 。

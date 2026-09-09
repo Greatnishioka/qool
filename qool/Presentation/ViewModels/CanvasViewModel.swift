@@ -32,6 +32,7 @@ final class CanvasViewModel: ObservableObject {
     private let maskStore: CutoutMaskStore
     private let maskRasterizer = CutoutMaskRasterizer()
     private let maskCodec = CutoutMaskPNGCodec()
+    private let maskFilters = CutoutMaskFilters()
     private let importImageUseCase: ImportImageUseCase
     private let cropGeometry = CutoutCropGeometry()
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
@@ -97,8 +98,15 @@ final class CanvasViewModel: ObservableObject {
     }
 
     /// 候補から選んだ輪郭を要素へ反映する。
+    ///
+    /// - Parameter mask: 抽出器が返したマスク。**あればこれを正として保存し、
+    ///   輪郭からは焼き直しません。** 縁の半透明が残るのはこの経路だけです。
     @discardableResult
-    func applyCutout(contours: [CanvasPathContour], to elementID: CanvasElement.ID) -> Bool {
+    func applyCutout(
+        contours: [CanvasPathContour],
+        mask: CutoutMask? = nil,
+        to elementID: CanvasElement.ID
+    ) -> Bool {
         guard !contours.isEmpty else {
             return false
         }
@@ -108,27 +116,27 @@ final class CanvasViewModel: ObservableObject {
             element.isClosedPath = true
         }
         cropSourceImage(of: elementID)
-        // **切り詰めたあとに焼きます。** 先に焼くと、画素の意味する範囲が切り詰めでずれます。
-        bakeCutoutMask(of: elementID)
+        // **切り詰めたあとに保存します。** 先に保存すると、画素の意味する範囲が切り詰めでずれます。
+        storeCutoutMask(mask, of: elementID)
         save()
 
         return true
     }
 
-    /// 輪郭からマスクを起こして保存し、要素へ参照を持たせる。
+    /// マスクを保存し、要素へ参照を持たせる。
     ///
-    /// **輪郭は残します。** なぞり直しの土台と、フローティングメモの外形に要ります。
-    private func bakeCutoutMask(of elementID: CanvasElement.ID) {
-        guard let element = memo.canvas.elements.first(where: { $0.id == elementID }),
-              !element.pathContours.isEmpty else {
+    /// **抽出器がマスクを返していればそれを使います。** 輪郭から焼き直すと、
+    /// 縁の半透明が 2 値に潰れて、マスクにした意味がなくなります。
+    /// 手直しした場合など、マスクが無いときだけ輪郭から焼きます。
+    private func storeCutoutMask(_ extracted: CutoutMask?, of elementID: CanvasElement.ID) {
+        guard let element = memo.canvas.elements.first(where: { $0.id == elementID }) else {
             return
         }
 
         let size = maskPixelSize(for: element)
+        let source = extracted.flatMap { maskFilters.resized($0, width: size.width, height: size.height) }
 
-        guard let mask = maskRasterizer
-                  .mask(from: element.pathContours, width: size.width, height: size.height)?
-                  .trimmed(),
+        guard let mask = (source ?? rasterizedMask(for: element, size: size))?.trimmed(),
               let data = maskCodec.encode(mask),
               let assetID = try? importImageUseCase(data, in: memo.id),
               let reference = CutoutMaskReference(assetID: assetID, extent: mask.extent) else {
@@ -138,6 +146,20 @@ final class CanvasViewModel: ObservableObject {
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
             element.cutoutMask = reference
         }
+    }
+
+    /// 輪郭から起こしたマスク。**抽出器のマスクが無いときの受け皿**です。
+    ///
+    /// **輪郭は残します。** なぞり直しの土台と、フローティングメモの外形に要ります。
+    private func rasterizedMask(
+        for element: CanvasElement,
+        size: (width: Int, height: Int)
+    ) -> CutoutMask? {
+        guard !element.pathContours.isEmpty else {
+            return nil
+        }
+
+        return maskRasterizer.mask(from: element.pathContours, width: size.width, height: size.height)
     }
 
     /// マスクを起こす画素数。**縦横の比は要素の枠に合わせます**（輪郭が枠を単位空間としているため）。

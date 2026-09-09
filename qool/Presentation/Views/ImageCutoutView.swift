@@ -27,7 +27,7 @@ struct ImageCutoutView: View {
     let image: NSImage
     let existingContours: [CanvasPathContour]
     let makeCandidates: (NSImage, [CGPoint]) async -> [CutoutCandidate]
-    let onApply: ([CanvasPathContour]) -> Void
+    let onApply: ([CanvasPathContour], CutoutMask?) -> Void
     let onClear: () -> Void
     let onDismiss: () -> Void
     /// 戻せる手数。設定で変えられます。
@@ -72,6 +72,18 @@ struct ImageCutoutView: View {
         }
 
         return candidates.first { $0.isRecommended } ?? candidates.first
+    }
+
+    /// 適用するマスク。
+    ///
+    /// **手直ししたら渡しません。** 手直しは輪郭に対して行うため、
+    /// 抽出器のマスクと食い違います。渡すと画面で見ていた形と違う結果になります。
+    private var appliedMask: CutoutMask? {
+        guard history == nil, !tracePoints.isEmpty else {
+            return nil
+        }
+
+        return selectedCandidate?.mask
     }
 
     private var previewContours: [CanvasPathContour] {
@@ -380,7 +392,7 @@ struct ImageCutoutView: View {
 
             // 手直しした形をそのまま渡します。**候補を渡すと手直しが捨てられます。**
             Button("適用") {
-                onApply(previewContours)
+                onApply(previewContours, appliedMask)
                 onDismiss()
             }
             .keyboardShortcut(.defaultAction)

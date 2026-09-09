@@ -68,6 +68,18 @@ Xcode が依存を解決できない状態で開いていると、**OpenCV の�
 
 DerivedData が古いと同じことが起きます。その場合は該当プロジェクトの DerivedData を消します。
 
+### 性能は最適化を有効にして測る
+
+Debug ビルドは最適化を行わず、配列の境界チェックも残ります。**画素をなめるような処理では Debug と Release で 45 倍違いました**（[#16](https://github.com/Greatnishioka/qool/issues/16)）。Debug の数字で設計を変える判断をしかけたことがあります。
+
+```bash
+xcodebuild -project qool.xcodeproj -scheme qool -destination 'platform=macOS' \
+  SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule \
+  -only-testing:qoolTests/... test
+```
+
+`-configuration Release` にすると `@testable import` が使えずテストがビルドできないため、Debug のまま最適化だけ有効にします。
+
 ### 座標系
 
 - 輪郭・マスク・正規化座標は **左上原点**

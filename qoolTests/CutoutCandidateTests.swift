@@ -5,19 +5,34 @@ import Testing
 
 /// 輪郭候補の生成と並び（[BuildCutoutCandidatesUseCase](../qool/Application/UseCases/Image/BuildCutoutCandidatesUseCase.swift)）の検証。
 struct CutoutCandidateTests {
-    /// 被写体を見つけない抽出器。**Vision を通さないことで、幾何側の挙動だけを見ます。**
-    private struct NoSubjectExtractor: SubjectContourExtractorProtocol {
-        func extractContour(in image: CGImage, guidedBy guide: [CGPoint]) async -> [CGPoint]? { nil }
+    /// 何も見つけない抽出器。**Vision と OpenCV を通さないことで、幾何側の挙動だけを見ます。**
+    private struct EmptyMaskExtractor: CutoutMaskExtractorProtocol {
+        func extractMask(in image: CGImage, guidedBy guide: [CGPoint]) async -> CutoutMask? { nil }
     }
 
-    /// 決まった輪郭を返す抽出器。被写体マスクが載ったときの並びを確かめます。
-    private struct FixedSubjectExtractor: SubjectContourExtractorProtocol {
+    /// 決まったマスクを返す抽出器。被写体マスクが載ったときの並びを確かめます。
+    private struct FixedMaskExtractor: CutoutMaskExtractorProtocol {
+        let mask: CutoutMask?
+
+        func extractMask(in image: CGImage, guidedBy guide: [CGPoint]) async -> CutoutMask? { mask }
+    }
+
+    /// 決まった輪郭を返す導出器。マスクの中身に依存せず並びだけを見ます。
+    private struct FixedContourDeriver: MaskContourDeriverProtocol {
         let contour: [CGPoint]
 
-        func extractContour(in image: CGImage, guidedBy guide: [CGPoint]) async -> [CGPoint]? { contour }
+        func contours(from mask: CutoutMask, threshold: UInt8) -> [[CGPoint]] { [contour] }
     }
 
-    private let buildCandidates = BuildCutoutCandidatesUseCase(subjectContourExtractor: NoSubjectExtractor())
+    /// 中央を塗った小さなマスク。中身は使われません。
+    private static func filledMask() -> CutoutMask? {
+        CutoutMask(width: 8, height: 8, coverage: [UInt8](repeating: 255, count: 64))
+    }
+
+    private let buildCandidates = BuildCutoutCandidatesUseCase(
+        subjectMaskExtractor: EmptyMaskExtractor(),
+        grabCutMaskExtractor: EmptyMaskExtractor()
+    )
 
     /// スタブは画像を見ないので、中身は何でも構いません。
     private let dummyImage: CGImage = {
@@ -173,7 +188,9 @@ struct CutoutCandidateTests {
         let guide = rectTrace(0.2, 0.2, 0.6, 0.6)
         // 検出ベースの抽出器には面積比 0.55 以上が要ります（0.5*0.5 / 0.6*0.6 = 0.69）。
         let build = BuildCutoutCandidatesUseCase(
-            subjectContourExtractor: FixedSubjectExtractor(contour: rectTrace(0.25, 0.25, 0.5, 0.5))
+            subjectMaskExtractor: FixedMaskExtractor(mask: Self.filledMask()),
+            grabCutMaskExtractor: EmptyMaskExtractor(),
+            maskContourDeriver: FixedContourDeriver(contour: rectTrace(0.25, 0.25, 0.5, 0.5))
         )
 
         let candidates = await build(image: dummyImage, tracePoints: guide)
@@ -187,7 +204,11 @@ struct CutoutCandidateTests {
     /// 被写体マスクは平滑化をかけて表示します。
     @Test func 被写体マスクの候補は平滑化される() async throws {
         let rough = rectTrace(0.3, 0.3, 0.4, 0.4, steps: 6)
-        let build = BuildCutoutCandidatesUseCase(subjectContourExtractor: FixedSubjectExtractor(contour: rough))
+        let build = BuildCutoutCandidatesUseCase(
+            subjectMaskExtractor: FixedMaskExtractor(mask: Self.filledMask()),
+            grabCutMaskExtractor: EmptyMaskExtractor(),
+            maskContourDeriver: FixedContourDeriver(contour: rough)
+        )
 
         let candidates = await build(image: dummyImage, tracePoints: rectTrace(0.2, 0.2, 0.6, 0.6))
 

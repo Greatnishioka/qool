@@ -10,7 +10,17 @@ import Testing
 /// 抽出が壊れていないことを機械的に固定できます。
 struct GrabCutContourExtractorTests {
     private let extractor = GrabCutContourExtractorInfrastructure()
+    private let deriver = MaskContourDeriverInfrastructure()
     private let geometry = ContourGeometry()
+
+    /// マスクから輪郭を導いて、被写体の位置を測れる形にします。
+    private func contour(in image: CGImage, guide: [CGPoint]) async -> [CGPoint]? {
+        guard let mask = await extractor.extractMask(in: image, guidedBy: guide) else {
+            return nil
+        }
+
+        return deriver.contours(from: mask, threshold: 128).first
+    }
 
     /// 白地の中央に黒い四角を描いた画像。四角は `0.3`〜`0.7` を占めます。
     private func imageWithDarkSquare(size: Int = 200) -> CGImage? {
@@ -57,9 +67,9 @@ struct GrabCutContourExtractorTests {
     @Test func なぞりが足りなければ抽出しない() async throws {
         let image = try #require(imageWithDarkSquare())
 
-        #expect(await extractor.extractContour(in: image, guidedBy: []) == nil)
+        #expect(await extractor.extractMask(in: image, guidedBy: []) == nil)
         #expect(
-            await extractor.extractContour(
+            await extractor.extractMask(
                 in: image,
                 guidedBy: [CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.8, y: 0.8)]
             ) == nil
@@ -71,7 +81,7 @@ struct GrabCutContourExtractorTests {
     @Test func 緩く囲んでも被写体の縁に寄る() async throws {
         let image = try #require(imageWithDarkSquare())
 
-        let contour = try #require(await extractor.extractContour(in: image, guidedBy: looseGuide()))
+        let contour = try #require(await contour(in: image, guide: looseGuide()))
         let bounds = geometry.bounds(for: contour)
 
         #expect(abs(bounds.minX - 0.3) < 0.05)
@@ -83,7 +93,7 @@ struct GrabCutContourExtractorTests {
     @Test func 輪郭は正規化座標に収まる() async throws {
         let image = try #require(imageWithDarkSquare())
 
-        let contour = try #require(await extractor.extractContour(in: image, guidedBy: looseGuide()))
+        let contour = try #require(await contour(in: image, guide: looseGuide()))
 
         #expect(contour.allSatisfy { (0...1).contains($0.x) && (0...1).contains($0.y) })
     }

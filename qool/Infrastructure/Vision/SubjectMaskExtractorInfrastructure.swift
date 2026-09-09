@@ -9,17 +9,11 @@ import Vision
 /// こちらは Swift 版の `GenerateForegroundInstanceMaskRequest` を使います。
 ///
 /// なぞりの内側にあるインスタンスだけを選ぶので、**背景や隣の物体は拾いません。**
-/// 輪郭化は放射状に 160 本のレイを飛ばし、中心から見て最も遠いマスク上の点を拾う方式です。
-nonisolated struct SubjectMaskExtractorInfrastructure: SubjectContourExtractorProtocol {
-    /// 輪郭として成立する最小の点数。
-    private static let minimumPointCount = 8
-    private static let rayCount = 160
-    /// 1 本のレイを刻む段数。
-    private static let raySteps = 220
-    /// これを超えたらマスクの内側とみなす。
-    private static let maskThreshold: Float = 0.08
-    /// なぞりの外側も少し見ます。被写体がなぞりからはみ出しても拾えるようにするためです。
-    private static let guideInset: CGFloat = -0.05
+///
+/// **しきい値を掛けずにマスクを返します。** Vision の前景マスクは 0〜1 の連続値で、
+/// 2 値に潰すと縁の半透明が失われます。髪の毛やガラスを抜けるかどうかはここで決まります
+/// （[設計](https://github.com/Greatnishioka/qool/issues/12)）。
+nonisolated struct SubjectMaskExtractorInfrastructure: CutoutMaskExtractorProtocol {
     /// なぞりの内側を何分割して調べるか。全画素を見る必要はありません。
     private static let guideSampleSteps = 40
     /// `instanceAtPoint` が背景に対して返す番号。
@@ -29,7 +23,7 @@ nonisolated struct SubjectMaskExtractorInfrastructure: SubjectContourExtractorPr
 
     init() {}
 
-    func extractContour(in image: CGImage, guidedBy guide: [CGPoint]) async -> [CGPoint]? {
+    func extractMask(in image: CGImage, guidedBy guide: [CGPoint]) async -> CutoutMask? {
         guard guide.count >= 3 else {
             return nil
         }
@@ -46,10 +40,9 @@ nonisolated struct SubjectMaskExtractorInfrastructure: SubjectContourExtractorPr
                 return nil
             }
 
-            let mask = try observation.generateScaledMask(for: instances, scaledToImageFrom: handler)
-            let contour = contourFromMask(mask, guidedBy: guide)
-
-            return contour.count >= Self.minimumPointCount ? contour : nil
+            return cutoutMask(
+                from: try observation.generateScaledMask(for: instances, scaledToImageFrom: handler)
+            )
         } catch {
             return nil
         }
@@ -92,56 +85,44 @@ nonisolated struct SubjectMaskExtractorInfrastructure: SubjectContourExtractorPr
         return instances
     }
 
-    /// 中心から放射状にレイを飛ばし、**最も遠いマスク上の点**を拾う。
-    /// 途中に穴があっても外側の輪郭を取れます。
-    private func contourFromMask(_ maskBuffer: CVPixelBuffer, guidedBy guide: [CGPoint]) -> [CGPoint] {
-        CVPixelBufferLockBaseAddress(maskBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(maskBuffer, .readOnly) }
+    /// マスクの画素をそのまま被覆率として読み取る。
+    ///
+    /// **画像の全体を覆います。** 画像は要素の枠いっぱいに描かれるので、
+    /// 単位矩形をそのまま覆う範囲にできます。使っていない縁は呼び出し側が切り詰めます。
+    private func cutoutMask(from buffer: CVPixelBuffer) -> CutoutMask? {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
 
-        guard let baseAddress = CVPixelBufferGetBaseAddress(maskBuffer) else {
-            return []
+        guard let baseAddress = CVPixelBufferGetBaseAddress(buffer) else {
+            return nil
         }
 
-        let width = CVPixelBufferGetWidth(maskBuffer)
-        let height = CVPixelBufferGetHeight(maskBuffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(maskBuffer)
-        let pixelFormat = CVPixelBufferGetPixelFormatType(maskBuffer)
-        let guideBounds = geometry.bounds(for: guide)
-            .insetBy(dx: Self.guideInset, dy: Self.guideInset)
-            .clampedToUnit()
-        let center = CGPoint(x: guideBounds.midX, y: guideBounds.midY)
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        let pixelFormat = CVPixelBufferGetPixelFormatType(buffer)
 
-        return (0..<Self.rayCount).compactMap { rayIndex in
-            let angle = CGFloat(rayIndex) / CGFloat(Self.rayCount) * 2 * .pi
-            var bestPoint: CGPoint?
+        guard width > 0, height > 0 else {
+            return nil
+        }
 
-            for step in 0...Self.raySteps {
-                let radius = CGFloat(step) / CGFloat(Self.raySteps)
-                let point = CGPoint(
-                    x: center.x + cos(angle) * radius,
-                    y: center.y + sin(angle) * radius
-                )
+        var coverage = [UInt8](repeating: 0, count: width * height)
 
-                guard guideBounds.contains(point) else {
-                    continue
-                }
-
-                let x = min(width - 1, max(0, Int(point.x * CGFloat(width))))
-                let y = min(height - 1, max(0, Int(point.y * CGFloat(height))))
-
-                if maskValue(
+        for y in 0..<height {
+            for x in 0..<width {
+                let value = maskValue(
                     baseAddress: baseAddress,
                     bytesPerRow: bytesPerRow,
                     pixelFormat: pixelFormat,
                     x: x,
                     y: y
-                ) > Self.maskThreshold {
-                    bestPoint = point
-                }
-            }
+                )
 
-            return bestPoint
+                coverage[y * width + x] = UInt8(min(255, max(0, value * 255)))
+            }
         }
+
+        return CutoutMask(width: width, height: height, coverage: coverage)
     }
 
     private func maskValue(
