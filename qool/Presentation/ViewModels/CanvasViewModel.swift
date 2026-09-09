@@ -5,8 +5,12 @@ import Foundation
 
 @MainActor
 final class CanvasViewModel: ObservableObject {
+    /// マスクを起こすときに、表示の大きさへ掛ける倍率。
+    /// 拡大しても縁が粗く見えないよう余裕を持たせます。
+    static let maskScale: CGFloat = 3
+
     /// マスクを起こす画素数の上限（長辺）。
-    static let maximumMaskLongSide: CGFloat = 2048
+    static let maximumMaskLongSide: CGFloat = 1024
 
     @Published private(set) var memo: Memo
     @Published var selectedTool: CanvasTool = .select
@@ -136,23 +140,32 @@ final class CanvasViewModel: ObservableObject {
         }
     }
 
-    /// マスクを起こす画素数。
+    /// マスクを起こす画素数。**縦横の比は要素の枠に合わせます**（輪郭が枠を単位空間としているため）。
     ///
-    /// **元画像の画素数に合わせ、上限で頭を打たせます。** 表示は長辺 320pt までなので、
-    /// 原寸の写真ぶんを抱える必要がありません。
+    /// **元画像ではなく表示の大きさで決めます。** 原寸の写真に合わせると、
+    /// 320pt で表示するために 1600 画素四方のマスクを抱えることになり、
+    /// 余白の計算だけで数秒かかりました（[#16](https://github.com/Greatnishioka/qool/issues/16)）。
+    ///
+    /// 元画像より細かくはしません。**画素を増やしても情報は増えません。**
     private func maskPixelSize(for element: CanvasElement) -> (width: Int, height: Int) {
-        let fallback = CGSize(
-            width: max(1, element.frame.width * 2),
-            height: max(1, element.frame.height * 2)
+        let frame = CGSize(
+            width: max(1, element.frame.width),
+            height: max(1, element.frame.height)
         )
+        let frameLongSide = max(frame.width, frame.height)
         let source = image(for: element)?.cgImage(forProposedRect: nil, context: nil, hints: nil)
-        let pixelSize = source.map { CGSize(width: $0.width, height: $0.height) } ?? fallback
-        let longSide = max(pixelSize.width, pixelSize.height)
-        let scale = longSide > Self.maximumMaskLongSide ? Self.maximumMaskLongSide / longSide : 1
+
+        var longSide = min(frameLongSide * Self.maskScale, Self.maximumMaskLongSide)
+
+        if let source {
+            longSide = min(longSide, CGFloat(max(source.width, source.height)))
+        }
+
+        let scale = longSide / frameLongSide
 
         return (
-            width: max(1, Int((pixelSize.width * scale).rounded())),
-            height: max(1, Int((pixelSize.height * scale).rounded()))
+            width: max(1, Int((frame.width * scale).rounded())),
+            height: max(1, Int((frame.height * scale).rounded()))
         )
     }
 

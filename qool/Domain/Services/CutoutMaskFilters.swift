@@ -34,8 +34,13 @@ nonisolated struct CutoutMaskFilters {
             )
         }
 
-        let horizontal = maximumAlongRows(padded, width: width, height: height, radius: radiusX)
-        let coverage = maximumAlongColumns(horizontal, width: width, height: height, radius: radiusY)
+        let coverage = maximumFiltered(
+            padded,
+            width: width,
+            height: height,
+            radiusX: radiusX,
+            radiusY: radiusY
+        )
 
         // 覆う範囲も、増やした画素のぶん広げます。
         let scaleX = mask.extent.width / CGFloat(mask.width)
@@ -81,86 +86,108 @@ nonisolated struct CutoutMaskFilters {
 
     // MARK: - 最大値フィルタ
 
-    /// **単調減少の窓で走らせます。** 半径ぶんを毎回見直すと、
-    /// 余白が広いときに画素数 × 半径の計算量になります。
-    private func maximumAlongRows(
+    /// **確保を使い回します。** 。
+    private func maximumFiltered(
         _ values: [UInt8],
         width: Int,
         height: Int,
-        radius: Int
+        radiusX: Int,
+        radiusY: Int
     ) -> [UInt8] {
-        guard radius > 0 else {
-            return values
-        }
-
+        var horizontal = values
         var result = values
+        // 単調減少の窓に使う添字。行と列で長いほうに合わせて 1 度だけ確保します。
+        var window = [Int](repeating: 0, count: max(width, height))
 
-        for row in 0..<height {
-            let offset = row * width
-            let line = Array(values[offset..<(offset + width)])
-            let filtered = slidingMaximum(line, radius: radius)
-            result.replaceSubrange(offset..<(offset + width), with: filtered)
-        }
+        values.withUnsafeBufferPointer { source in
+            horizontal.withUnsafeMutableBufferPointer { destination in
+                window.withUnsafeMutableBufferPointer { window in
+                    guard radiusX > 0 else {
+                        return
+                    }
 
-        return result
-    }
-
-    private func maximumAlongColumns(
-        _ values: [UInt8],
-        width: Int,
-        height: Int,
-        radius: Int
-    ) -> [UInt8] {
-        guard radius > 0 else {
-            return values
-        }
-
-        var result = values
-
-        for column in 0..<width {
-            let line = (0..<height).map { row in values[row * width + column] }
-            let filtered = slidingMaximum(line, radius: radius)
-
-            for row in 0..<height {
-                result[row * width + column] = filtered[row]
+                    for row in 0..<height {
+                        slidingMaximum(
+                            source: source.baseAddress!,
+                            destination: destination.baseAddress!,
+                            start: row * width,
+                            count: width,
+                            step: 1,
+                            radius: radiusX,
+                            window: window.baseAddress!
+                        )
+                    }
+                }
             }
         }
 
-        return result
+        horizontal.withUnsafeBufferPointer { source in
+            result.withUnsafeMutableBufferPointer { destination in
+                window.withUnsafeMutableBufferPointer { window in
+                    guard radiusY > 0 else {
+                        return
+                    }
+
+                    for column in 0..<width {
+                        slidingMaximum(
+                            source: source.baseAddress!,
+                            destination: destination.baseAddress!,
+                            start: column,
+                            count: height,
+                            step: width,
+                            radius: radiusY,
+                            window: window.baseAddress!
+                        )
+                    }
+                }
+            }
+        }
+
+        return radiusY > 0 ? result : horizontal
     }
 
-    /// 幅 `radius * 2 + 1` の窓での最大値。要素の数に比例した手数で終わります。
-    private func slidingMaximum(_ values: [UInt8], radius: Int) -> [UInt8] {
-        var result = [UInt8](repeating: 0, count: values.count)
-        // 値が単調減少になるよう保つ添字の並び。先頭が窓の中の最大値です。
-        var indices: [Int] = []
+    /// 幅 `radius * 2 + 1` の窓での最大値。**要素の数に比例した手数で終わります。**
+    ///
+    /// `step` は隣の要素までの間隔です。列を走るときは行の幅になるので、
+    /// 行と列で同じ処理を使い回せます。
+    private func slidingMaximum(
+        source: UnsafePointer<UInt8>,
+        destination: UnsafeMutablePointer<UInt8>,
+        start: Int,
+        count: Int,
+        step: Int,
+        radius: Int,
+        window: UnsafeMutablePointer<Int>
+    ) {
         var head = 0
+        var tail = 0
 
-        for index in values.indices {
-            while indices.count > head, values[indices[indices.count - 1]] <= values[index] {
-                indices.removeLast()
+        for index in 0..<count {
+            let value = source[start + index * step]
+
+            while tail > head, source[start + window[tail - 1] * step] <= value {
+                tail -= 1
             }
 
-            indices.append(index)
+            window[tail] = index
+            tail += 1
 
-            if indices[head] < index - radius * 2 {
+            if window[head] < index - radius * 2 {
                 head += 1
             }
 
             if index >= radius {
-                result[index - radius] = values[indices[head]]
+                destination[start + (index - radius) * step] = source[start + window[head] * step]
             }
         }
 
-        // 右端は窓が外へはみ出すので、残りを詰めます。
-        for index in max(0, values.count - radius)..<values.count {
-            while indices.count > head, indices[head] < index - radius {
+        // 右端（下端）は窓が外へはみ出すので、残りを詰めます。
+        for index in max(0, count - radius)..<count {
+            while tail > head, window[head] < index - radius {
                 head += 1
             }
 
-            result[index] = values[indices[head]]
+            destination[start + index * step] = source[start + window[head] * step]
         }
-
-        return result
     }
 }

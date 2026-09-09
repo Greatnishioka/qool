@@ -74,12 +74,34 @@ nonisolated struct CutoutMask: Equatable {
         var minimumRow = height
         var maximumRow = -1
 
-        for row in 0..<height {
-            for column in 0..<width where coverage[row * width + column] > threshold {
-                minimumColumn = min(minimumColumn, column)
-                maximumColumn = max(maximumColumn, column)
+        // **行ごとに端だけを探します。** 1 画素ずつ最小・最大を取り直すと、
+        // 大きなマスクで無視できない時間になります。
+        coverage.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else {
+                return
+            }
+
+            for row in 0..<height {
+                let offset = row * width
+                var first = -1
+                var last = -1
+
+                for column in 0..<width where base[offset + column] > threshold {
+                    if first < 0 {
+                        first = column
+                    }
+
+                    last = column
+                }
+
+                guard first >= 0 else {
+                    continue
+                }
+
+                minimumColumn = min(minimumColumn, first)
+                maximumColumn = max(maximumColumn, last)
                 minimumRow = min(minimumRow, row)
-                maximumRow = max(maximumRow, row)
+                maximumRow = row
             }
         }
 
