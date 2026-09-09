@@ -148,6 +148,132 @@ nonisolated struct CutoutMaskFilters {
         return CutoutMask(extent: mask.extent, width: width, height: height, coverage: coverage)
     }
 
+    /// ぼかしたマスク。**ブラシの柔らかさに使います。**
+    ///
+    /// 窓の中の平均を取ります。走査するたびに足し直さず、**出入りする 1 画素だけを
+    /// 加減する**ので、半径を広げても手数は変わりません。
+    func blurred(_ mask: CutoutMask, radiusX: Int, radiusY: Int) -> CutoutMask? {
+        guard radiusX > 0 || radiusY > 0 else {
+            return mask
+        }
+
+        var coverage = mask.coverage
+        var scratch = mask.coverage
+        let width = mask.width
+        let height = mask.height
+
+        if radiusX > 0 {
+            coverage.withUnsafeBufferPointer { source in
+                scratch.withUnsafeMutableBufferPointer { destination in
+                    for row in 0..<height {
+                        movingAverage(
+                            source: source.baseAddress!,
+                            destination: destination.baseAddress!,
+                            start: row * width,
+                            count: width,
+                            step: 1,
+                            radius: radiusX
+                        )
+                    }
+                }
+            }
+            swap(&coverage, &scratch)
+        }
+
+        if radiusY > 0 {
+            coverage.withUnsafeBufferPointer { source in
+                scratch.withUnsafeMutableBufferPointer { destination in
+                    for column in 0..<width {
+                        movingAverage(
+                            source: source.baseAddress!,
+                            destination: destination.baseAddress!,
+                            start: column,
+                            count: height,
+                            step: width,
+                            radius: radiusY
+                        )
+                    }
+                }
+            }
+            swap(&coverage, &scratch)
+        }
+
+        return CutoutMask(extent: mask.extent, width: width, height: height, coverage: coverage)
+    }
+
+    /// 単位矩形の全体を覆うマスクへ置き直す。
+    ///
+    /// **編集の間はこの形で持ちます。** 切り詰めた範囲のまま合成しようとすると、
+    /// なぞりが今の形の外へ出るたびに範囲を広げ直すことになります。
+    /// 同じ格子に載せてしまえば、合成は画素どうしの比較だけで済みます。
+    func placedInUnitSpace(_ mask: CutoutMask, width: Int, height: Int) -> CutoutMask? {
+        guard width > 0, height > 0 else {
+            return nil
+        }
+
+        let (pixelCount, overflowed) = width.multipliedReportingOverflow(by: height)
+        guard !overflowed else {
+            return nil
+        }
+
+        var coverage = [UInt8](repeating: 0, count: pixelCount)
+        let extent = mask.extent
+
+        for row in 0..<height {
+            // 出力の画素の中心が、元のマスクのどこに当たるか。
+            let y = (CGFloat(row) + 0.5) / CGFloat(height)
+            let sourceY = (y - extent.minY) / extent.height * CGFloat(mask.height)
+
+            guard sourceY >= 0, sourceY < CGFloat(mask.height) else {
+                continue
+            }
+
+            let sourceRow = Int(sourceY) * mask.width
+
+            for column in 0..<width {
+                let x = (CGFloat(column) + 0.5) / CGFloat(width)
+                let sourceX = (x - extent.minX) / extent.width * CGFloat(mask.width)
+
+                guard sourceX >= 0, sourceX < CGFloat(mask.width) else {
+                    continue
+                }
+
+                coverage[row * width + column] = mask.coverage[sourceRow + Int(sourceX)]
+            }
+        }
+
+        return CutoutMask(width: width, height: height, coverage: coverage)
+    }
+
+    // MARK: - 平均フィルタ
+
+    /// 窓の中の平均。出入りする画素だけを加減します。
+    private func movingAverage(
+        source: UnsafePointer<UInt8>,
+        destination: UnsafeMutablePointer<UInt8>,
+        start: Int,
+        count: Int,
+        step: Int,
+        radius: Int
+    ) {
+        var total = 0
+
+        // 最初の窓。範囲の外は端の値が続くものとして扱います。
+        for index in -radius...radius {
+            total += Int(source[start + min(count - 1, max(0, index)) * step])
+        }
+
+        let window = radius * 2 + 1
+
+        for index in 0..<count {
+            destination[start + index * step] = UInt8(total / window)
+
+            let leaving = min(count - 1, max(0, index - radius))
+            let entering = min(count - 1, max(0, index + radius + 1))
+            total += Int(source[start + entering * step]) - Int(source[start + leaving * step])
+        }
+    }
+
     // MARK: - 最大値フィルタ
 
     /// **確保を使い回します。** 。
