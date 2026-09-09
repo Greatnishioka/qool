@@ -20,9 +20,17 @@ nonisolated struct CutoutMask: Equatable {
     /// 被覆率。**行優先で、先頭が左上**です。
     let coverage: [UInt8]
 
-    /// 画素数と配列の長さが合わなければ `nil`。
+    /// 画素数と配列の長さが合わない、または `extent` が範囲として成立しなければ `nil`。
+    ///
+    /// **非有限値と 0 以下の幅を弾きます。** `value(at:)` は 0 を返して耐えますが、
+    /// そのまま描画へ渡すと壊れた `CGRect` になります。入り口で止めます。
     init?(extent: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), width: Int, height: Int, coverage: [UInt8]) {
-        guard width > 0, height > 0, coverage.count == width * height else {
+        guard width > 0, height > 0, extent.isValidUnitExtent else {
+            return nil
+        }
+
+        let (pixelCount, overflowed) = width.multipliedReportingOverflow(by: height)
+        guard !overflowed, coverage.count == pixelCount else {
             return nil
         }
 

@@ -16,16 +16,18 @@ nonisolated struct CutoutMaskRasterizer {
     ///   - height: 縦の画素数。
     /// - Returns: 全面を覆う範囲のマスク。描けなければ `nil`。
     func mask(from contours: [CanvasPathContour], width: Int, height: Int) -> CutoutMask? {
-        guard width > 0, height > 0 else {
+        let (pixelCount, overflowed) = width.multipliedReportingOverflow(by: height)
+        guard width > 0, height > 0, !overflowed else {
             return nil
         }
 
-        let usable = contours.filter { $0.points.count >= 3 }
+        // **開いた輪郭は塗りません。** 強引に閉じると、なぞり途中の線が面になります。
+        let usable = contours.filter { $0.isClosed && $0.points.count >= 3 }
         guard !usable.isEmpty else {
             return nil
         }
 
-        var coverage = [UInt8](repeating: 0, count: width * height)
+        var coverage = [UInt8](repeating: 0, count: pixelCount)
 
         let drawn: Bool = coverage.withUnsafeMutableBytes { buffer in
             guard let baseAddress = buffer.baseAddress,

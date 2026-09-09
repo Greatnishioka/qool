@@ -23,6 +23,9 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
     /// 切り詰める前の元画像。切り抜きを解除したときに戻る先です。
     /// 切り詰めていなければ `nil`。
     var imageSource: CutoutImageSource?
+    /// 切り抜きのマスク。**`pathContours` より優先します。**
+    /// マスクを持たない古いメモは `pathContours` で描きます。
+    var cutoutMask: CutoutMaskReference?
     var unionSourceElements: [CanvasElementSnapshot]
 
     init(
@@ -43,6 +46,7 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         imageAssetID: UUID? = nil,
         imageAdjustment: ImageAdjustment = .default,
         imageSource: CutoutImageSource? = nil,
+        cutoutMask: CutoutMaskReference? = nil,
         unionSourceElements: [CanvasElementSnapshot] = []
     ) {
         self.id = id
@@ -62,6 +66,7 @@ nonisolated struct CanvasElement: Identifiable, Equatable, Hashable, Codable {
         self.imageAssetID = imageAssetID
         self.imageAdjustment = imageAdjustment
         self.imageSource = imageSource
+        self.cutoutMask = cutoutMask
         self.unionSourceElements = unionSourceElements
     }
 }
