@@ -29,6 +29,10 @@ struct ImageCutoutView: View {
     /// マスクを重ねて見せるときの濃さ。
     private static let maskOverlayOpacity: Double = 0.45
 
+    /// 領域選択の許容差。**色の違いをどこまで同じ領域とみなすか。**
+    private static let toleranceRange: ClosedRange<CGFloat> = 1...96
+    private static let defaultTolerance: CGFloat = 24
+
     /// 表示倍率の範囲。1 が「画像全体が収まっている状態」です。
     private static let zoomRange: ClosedRange<CGFloat> = 1...12
     /// ホイールの 1 目盛あたりの倍率。**掛け算で効かせます。**
@@ -40,6 +44,8 @@ struct ImageCutoutView: View {
     /// 今のマスク。**手直しはこれを土台にします。**
     let existingMask: CutoutMask?
     let makeCandidates: (NSImage, [CGPoint]) async -> [CutoutCandidate]
+    /// 押した場所から色の近い範囲を広げる。領域選択の道具が使います。
+    let makeRegionMask: (NSImage, CGPoint, Int) -> CutoutMask?
     let onApply: ([CanvasPathContour], CutoutMask?) -> Void
     let onClear: () -> Void
     let onDismiss: () -> Void
@@ -69,6 +75,7 @@ struct ImageCutoutView: View {
     /// 重ねて見せるための画像。**`body` で作ると毎フレーム変換が走ります。**
     @State private var previewImage: CGImage?
     @State private var brushSoftness = ImageCutoutView.defaultBrushSoftness
+    @State private var tolerance = ImageCutoutView.defaultTolerance
 
     /// 表示倍率と、拡大したときの表示位置のずらし量。
     /// **画像を収めた矩形を基準にしています**（`imageRect`）。
@@ -200,6 +207,21 @@ struct ImageCutoutView: View {
                 .help("ブラシの縁の柔らかさ")
             }
 
+            if tool.fillsRegion {
+                HStack(spacing: 6) {
+                    Image(systemName: "eyedropper")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Slider(value: $tolerance, in: Self.toleranceRange)
+                        .frame(width: 110)
+                    Text("\(Int(tolerance))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, alignment: .trailing)
+                }
+                .help("同じ領域とみなす色の違い")
+            }
+
             Spacer()
 
             // 押すと等倍へ戻ります。**移動の手段が拡大の中心しかないため、
@@ -286,13 +308,15 @@ struct ImageCutoutView: View {
                     .onChanged { value in
                         if isSpacePressed {
                             panByDrag(value.translation, in: proxy.size)
+                        } else if tool.fillsRegion {
+                            // 領域は指を離した時点で 1 回だけ広げます。
                         } else if tool == .trace {
                             appendTracePoint(value.location, in: rect)
                         } else {
                             appendStrokePoint(value.location, in: rect)
                         }
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
                         pinchBaseScale = zoomScale
 
                         guard !isSpacePressed else {
@@ -300,7 +324,9 @@ struct ImageCutoutView: View {
                             return
                         }
 
-                        if tool == .trace {
+                        if tool.fillsRegion {
+                            fillRegion(at: value.location, in: rect)
+                        } else if tool == .trace {
                             // なぞり終わりにまとめて抽出します。
                             selectedCandidateID = nil
                             extract()
@@ -503,13 +529,44 @@ struct ImageCutoutView: View {
             width: base.current.width,
             height: base.current.height,
             // 投げ縄は囲んだ内側を塗ります。
-            isClosed: !tool.usesBrushSize
+            isClosed: tool.enclosesArea
         ) else {
             return
         }
 
         var editing = base
         editing.record(editMask(editing.current, combining: stamp, mode: mode))
+        history = editing
+        refreshPreviewImage()
+    }
+
+    /// 押した場所から領域を広げて合成する。
+    ///
+    /// **1 回のクリックで効きます。** 囲まれた場所（カップの取っ手の内側など）を
+    /// 形どおりに一度で選べるのがブラシとの違いです。
+    private func fillRegion(at location: CGPoint, in rect: CGRect) {
+        guard let mode = tool.editMode, rect.width > 0, rect.height > 0,
+              let base = editingBase() else {
+            return
+        }
+
+        let point = CGPoint(
+            x: (location.x - rect.minX) / rect.width,
+            y: (location.y - rect.minY) / rect.height
+        )
+
+        guard (0..<1).contains(point.x), (0..<1).contains(point.y),
+              let region = makeRegionMask(image, point, Int(tolerance)),
+              let placed = maskFilters.placedInUnitSpace(
+                  region,
+                  width: base.current.width,
+                  height: base.current.height
+              ) else {
+            return
+        }
+
+        var editing = base
+        editing.record(editMask(editing.current, combining: placed, mode: mode))
         history = editing
         refreshPreviewImage()
     }

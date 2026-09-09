@@ -37,6 +37,7 @@ final class CanvasViewModel: ObservableObject {
     private let maskCodec = CutoutMaskPNGCodec()
     private let maskFilters = CutoutMaskFilters()
     private let maskContourDeriver: any MaskContourDeriverProtocol = MaskContourDeriverInfrastructure()
+    private let regionMaskExtractor: any RegionMaskExtractorProtocol = RegionFillExtractorInfrastructure()
     private let importImageUseCase: ImportImageUseCase
     private let cropGeometry = CutoutCropGeometry()
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
@@ -73,6 +74,15 @@ final class CanvasViewModel: ObservableObject {
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
         self.buildCutoutCandidatesUseCase = buildCutoutCandidatesUseCase
         self.onSave = onSave
+    }
+
+    /// 押した場所から色の近い範囲を広げたマスク。切り抜きシートの領域選択が使います。
+    func regionMask(in image: NSImage, at point: CGPoint, tolerance: Int) -> CutoutMask? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+
+        return regionMaskExtractor.regionMask(in: cgImage, at: point, tolerance: tolerance)
     }
 
     /// 要素が持つマスク。切り抜きシートが編集の土台にします。

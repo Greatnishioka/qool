@@ -94,6 +94,7 @@ struct CanvasView: View {
                     existingContours: element.pathContours,
                     existingMask: viewModel.cutoutMask(for: element),
                     makeCandidates: viewModel.cutoutCandidates,
+                    makeRegionMask: { viewModel.regionMask(in: $0, at: $1, tolerance: $2) },
                     onApply: { viewModel.applyCutout(contours: $0, mask: $1, to: element.id) },
                     onClear: { viewModel.clearCutout(of: element.id) },
                     onDismiss: { cutoutTarget = nil },
