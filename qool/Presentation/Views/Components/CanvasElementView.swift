@@ -70,9 +70,10 @@ struct CanvasElementView: View {
                     ? AnyShape(Rectangle())
                     : AnyShape(MultiContourPathShape(contours: element.pathContours))
 
+                // **縦横比は保ちません。** 輪郭は枠へ線形に写すので、
+                // 画像だけ比を保つと、枠を非等比に変えたときに切り抜きが被写体から外れます。
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFill()
                     .brightness(element.imageAdjustment.brightness)
                     .opacity(element.imageAdjustment.opacity)
                     .mask { cutoutMask(cutoutShape) }

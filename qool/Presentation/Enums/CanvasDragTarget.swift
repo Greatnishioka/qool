@@ -14,4 +14,14 @@ enum CanvasDragTarget {
     case unionSource(CanvasElementSnapshot.ID)
     /// 範囲選択。
     case marquee(start: CGPoint, current: CGPoint)
+    /// 角を掴んだ変形。**掴んだ角は途中で変えません。**
+    ///
+    /// 縦横比を保つかは途中で変わり得る（⇧ の押し直し）ので、ここに持ちます。
+    /// 見た目と確定結果が食い違わないよう、確定にも同じ値を使います。
+    case resizing(
+        elementID: CanvasElement.ID,
+        corner: CanvasResizeCorner,
+        current: CGPoint,
+        preservesAspectRatio: Bool
+    )
 }

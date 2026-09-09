@@ -20,6 +20,7 @@ final class CanvasViewModel: ObservableObject {
     private let updateElementUseCase: UpdateCanvasElementUseCase
     private let unionElementsUseCase: UnionCanvasElementsUseCase
     private let reorderElementsUseCase: ReorderCanvasElementsUseCase
+    private let resizeElementUseCase = ResizeCanvasElementUseCase()
     private let imageStore: CanvasImageStore
     private let importImageUseCase: ImportImageUseCase
     private let cropGeometry = CutoutCropGeometry()
@@ -380,6 +381,61 @@ final class CanvasViewModel: ObservableObject {
             }
         }
 
+        save()
+    }
+
+    // MARK: - 変形
+
+    /// `point` にある角の掴み手。掴んでいなければ `nil`。
+    ///
+    /// **単一選択のときだけ返します。** 複数選んでいるときにどれか 1 つだけ変形すると、
+    /// どの要素の角なのかが画面から読み取れません。
+    func resizeCorner(at point: CGPoint) -> (elementID: CanvasElement.ID, corner: CanvasResizeCorner)? {
+        guard let element = selectedElement,
+              let corner = resizeElementUseCase.corner(at: point, of: element) else {
+            return nil
+        }
+
+        return (element.id, corner)
+    }
+
+    /// 変形中の見た目。**確定前なので要素は変えません。**
+    func resizedFrame(
+        of elementID: CanvasElement.ID,
+        corner: CanvasResizeCorner,
+        to point: CGPoint,
+        preservingAspectRatio: Bool = false
+    ) -> CGRect? {
+        guard let element = memo.canvas.elements.first(where: { $0.id == elementID }) else {
+            return nil
+        }
+
+        return resizeElementUseCase(
+            element,
+            corner: corner,
+            to: point,
+            preservingAspectRatio: preservingAspectRatio
+        )
+    }
+
+    func resizeElement(
+        id elementID: CanvasElement.ID,
+        corner: CanvasResizeCorner,
+        to point: CGPoint,
+        preservingAspectRatio: Bool = false
+    ) {
+        guard let frame = resizedFrame(
+            of: elementID,
+            corner: corner,
+            to: point,
+            preservingAspectRatio: preservingAspectRatio
+        ) else {
+            return
+        }
+
+        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element.frame = frame
+        }
         save()
     }
 
