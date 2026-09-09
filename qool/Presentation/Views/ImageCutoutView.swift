@@ -18,6 +18,17 @@ struct ImageCutoutView: View {
     private static let brushSizeRange: ClosedRange<CGFloat> = 4...80
     private static let defaultBrushSize: CGFloat = 24
 
+    /// ブラシの縁の柔らかさ。半径に対する割合です。
+    private static let brushSoftnessRange: ClosedRange<CGFloat> = 0...1
+    private static let defaultBrushSoftness: CGFloat = 0.35
+
+    /// 編集で使うマスクの画素数（長辺）。**保存時にはここから縮めます。**
+    /// 粗すぎるとブラシの縁が階段になり、細かすぎると 1 手ごとの差分が重くなります。
+    private static let editingMaskLongSide: CGFloat = 1024
+
+    /// マスクを重ねて見せるときの濃さ。
+    private static let maskOverlayOpacity: Double = 0.45
+
     /// 表示倍率の範囲。1 が「画像全体が収まっている状態」です。
     private static let zoomRange: ClosedRange<CGFloat> = 1...12
     /// ホイールの 1 目盛あたりの倍率。**掛け算で効かせます。**
@@ -26,6 +37,8 @@ struct ImageCutoutView: View {
 
     let image: NSImage
     let existingContours: [CanvasPathContour]
+    /// 今のマスク。**手直しはこれを土台にします。**
+    let existingMask: CutoutMask?
     let makeCandidates: (NSImage, [CGPoint]) async -> [CutoutCandidate]
     let onApply: ([CanvasPathContour], CutoutMask?) -> Void
     let onClear: () -> Void
@@ -49,8 +62,13 @@ struct ImageCutoutView: View {
     /// 手直し中のなぞり。指を離した時点でまとめて合成します。
     @State private var strokePoints: [CGPoint] = []
     /// **`nil` は「まだ手直ししていない」を表します。** 手直しを始めた時点で、
-    /// そのときの輪郭を土台にして積み始めます。
-    @State private var history: ContourEditHistory?
+    /// そのときのマスクを土台にして積み始めます。
+    @State private var history: CutoutMaskEditHistory?
+    /// 手直しの土台。なぞり直すか候補を選び直すと入れ替わります。
+    @State private var baseMask: CutoutMask?
+    /// 重ねて見せるための画像。**`body` で作ると毎フレーム変換が走ります。**
+    @State private var previewImage: CGImage?
+    @State private var brushSoftness = ImageCutoutView.defaultBrushSoftness
 
     /// 表示倍率と、拡大したときの表示位置のずらし量。
     /// **画像を収めた矩形を基準にしています**（`imageRect`）。
@@ -63,8 +81,11 @@ struct ImageCutoutView: View {
     /// 移動中のドラッグで、前回までに動かした量。差分だけ足すために持ちます。
     @State private var lastPanTranslation: CGSize = .zero
 
-    private let editContour = EditCutoutContourUseCase()
-    private let brushOutline = BrushStrokeOutline()
+    private let editMask = EditCutoutMaskUseCase()
+    private let maskStamp = CutoutMaskStamp()
+    private let maskFilters = CutoutMaskFilters()
+    private let maskRasterizer = CutoutMaskRasterizer()
+    private let maskCodec = CutoutMaskPNGCodec()
 
     private var selectedCandidate: CutoutCandidate? {
         if let selectedCandidateID, let picked = candidates.first(where: { $0.id == selectedCandidateID }) {
@@ -74,24 +95,14 @@ struct ImageCutoutView: View {
         return candidates.first { $0.isRecommended } ?? candidates.first
     }
 
-    /// 適用するマスク。
-    ///
-    /// **手直ししたら渡しません。** 手直しは輪郭に対して行うため、
-    /// 抽出器のマスクと食い違います。渡すと画面で見ていた形と違う結果になります。
-    private var appliedMask: CutoutMask? {
-        guard history == nil, !tracePoints.isEmpty else {
-            return nil
-        }
-
-        return selectedCandidate?.mask
+    /// 今見えているマスク。**これが切り抜きの正です。**
+    private var previewMask: CutoutMask? {
+        history?.current ?? baseMask
     }
 
+    /// 適用する輪郭。**マスクがあれば呼び出し側が導き直す**ので、ここでは表示用の値を渡します。
     private var previewContours: [CanvasPathContour] {
-        if let history {
-            return history.current
-        }
-
-        return tracePoints.isEmpty ? existingContours : (selectedCandidate?.contours ?? [])
+        tracePoints.isEmpty ? existingContours : (selectedCandidate?.contours ?? [])
     }
 
     var body: some View {
@@ -116,6 +127,7 @@ struct ImageCutoutView: View {
             footer
         }
         .frame(width: 860, height: 640)
+        .onAppear { rebuildBaseMask() }
     }
 
     private var header: some View {
@@ -166,12 +178,26 @@ struct ImageCutoutView: View {
                         .font(.system(size: 8))
                         .foregroundStyle(.secondary)
                     Slider(value: $brushSize, in: Self.brushSizeRange)
-                        .frame(width: 110)
+                        .frame(width: 90)
                     Text("\(Int(brushSize))")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(width: 24, alignment: .trailing)
                 }
+
+                // 縁の柔らかさ。**マスクにしたことで持てるようになった値**です。
+                HStack(spacing: 6) {
+                    Image(systemName: "drop")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Slider(value: $brushSoftness, in: Self.brushSoftnessRange)
+                        .frame(width: 90)
+                    Text("\(Int(brushSoftness * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 34, alignment: .trailing)
+                }
+                .help("ブラシの縁の柔らかさ")
             }
 
             Spacer()
@@ -192,6 +218,7 @@ struct ImageCutoutView: View {
 
             Button {
                 history?.undo()
+                refreshPreviewImage()
             } label: {
                 Label("元に戻す", systemImage: "arrow.uturn.backward")
             }
@@ -199,6 +226,7 @@ struct ImageCutoutView: View {
 
             Button {
                 history?.redo()
+                refreshPreviewImage()
             } label: {
                 Label("やり直す", systemImage: "arrow.uturn.forward")
             }
@@ -229,7 +257,7 @@ struct ImageCutoutView: View {
                         .allowsHitTesting(false)
                 }
 
-                contourOverlay(in: rect)
+                maskOverlay(in: rect)
                 traceOverlay(in: rect)
 
                 // どちらもクリックを奪わないので、なぞりと同時に効きます。
@@ -293,11 +321,24 @@ struct ImageCutoutView: View {
         }
     }
 
+    /// 今のマスクを色で重ねて見せる。
+    ///
+    /// **破線ではなく塗りで見せます。** ブラシの柔らかさや縁の半透明は、
+    /// 線で表せません。マスクにした意味が画面に出ないと調整のしようがありません。
     @ViewBuilder
-    private func contourOverlay(in rect: CGRect) -> some View {
-        if !previewContours.isEmpty {
-            path(for: previewContours, in: rect)
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+    private func maskOverlay(in rect: CGRect) -> some View {
+        if let previewImage {
+            Color.accentColor
+                .opacity(Self.maskOverlayOpacity)
+                .mask {
+                    Image(decorative: previewImage, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        // 明るさを不透明度として読み替えます。
+                        .luminanceToAlpha()
+                }
                 .allowsHitTesting(false)
         }
     }
@@ -334,6 +375,7 @@ struct ImageCutoutView: View {
 
                     Button {
                         selectedCandidateID = candidate.id
+                        rebuildBaseMask()
                     } label: {
                         HStack(spacing: 5) {
                             if candidate.isRecommended {
@@ -384,19 +426,19 @@ struct ImageCutoutView: View {
                 tracePoints = []
                 selectedCandidateID = nil
                 candidates = []
-                // 土台が変わるので手直しも捨てます。積んだままだと古い形へ戻せてしまいます。
-                history = nil
                 tool = .trace
+                // 土台が変わるので手直しも捨てます。積んだままだと古い形へ戻せてしまいます。
+                rebuildBaseMask()
             }
             .disabled(tracePoints.isEmpty && history == nil)
 
             // 手直しした形をそのまま渡します。**候補を渡すと手直しが捨てられます。**
             Button("適用") {
-                onApply(previewContours, appliedMask)
+                onApply(previewContours, previewMask)
                 onDismiss()
             }
             .keyboardShortcut(.defaultAction)
-            .disabled(previewContours.isEmpty)
+            .disabled(previewMask == nil)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -415,6 +457,7 @@ struct ImageCutoutView: View {
 
             candidates = extracted
             isExtracting = false
+            rebuildBaseMask()
         }
     }
 
@@ -442,24 +485,86 @@ struct ImageCutoutView: View {
 
     /// 指を離した時点で 1 回だけ合成します。
     ///
-    /// **ドラッグ中は合成しません。** 1 手が 11〜19ms かかるため（実測）、
+    /// **ドラッグ中は合成しません。** 画素をなめる処理なので、
     /// 毎フレーム走らせると指に追従しなくなります。
     private func applyStroke(in rect: CGRect) {
         let stroke = strokePoints
         strokePoints = []
 
-        guard let mode = tool.editMode, !stroke.isEmpty, rect.width > 0 else {
+        guard let mode = tool.editMode, !stroke.isEmpty, rect.width > 0,
+              let base = editingBase() else {
             return
         }
 
-        let polygons: [[CGPoint]] = tool.usesBrushSize
-            ? brushOutline.polygons(for: stroke, radius: brushSize / 2 / rect.width)
-            : [stroke]
+        guard let stamp = maskStamp.stamp(
+            points: stroke,
+            radius: brushSize / 2 / rect.width,
+            softness: tool.usesBrushSize ? brushSoftness : 0,
+            width: base.current.width,
+            height: base.current.height,
+            // 投げ縄は囲んだ内側を塗ります。
+            isClosed: !tool.usesBrushSize
+        ) else {
+            return
+        }
 
-        // 手直しを始めた時点の輪郭が土台になります。
-        var editing = history ?? ContourEditHistory(previewContours, limit: historyLimit)
-        editing.record(editContour(editing.current, combining: polygons, mode: mode))
+        var editing = base
+        editing.record(editMask(editing.current, combining: stamp, mode: mode))
         history = editing
+        refreshPreviewImage()
+    }
+
+    /// 手直しの土台。**始めた時点のマスクを単位空間へ載せ直してから積みます。**
+    /// 切り詰めた範囲のままだと、なぞりが形の外へ出るたびに格子が変わります。
+    private func editingBase() -> CutoutMaskEditHistory? {
+        if let history {
+            return history
+        }
+
+        guard let mask = baseMask else {
+            return nil
+        }
+
+        return CutoutMaskEditHistory(mask, limit: historyLimit)
+    }
+
+    /// 土台を作り直す。なぞり直し・候補の選び直し・シートを開いた直後に呼びます。
+    private func rebuildBaseMask() {
+        let size = editingMaskSize()
+        let source = selectedCandidate?.mask
+            ?? existingMask
+            ?? maskRasterizer.mask(
+                from: previewContours,
+                width: size.width,
+                height: size.height
+            )
+
+        baseMask = source.flatMap {
+            maskFilters.placedInUnitSpace($0, width: size.width, height: size.height)
+        }
+        history = nil
+        refreshPreviewImage()
+    }
+
+    /// 編集で使う画素数。**縦横の比は画像に合わせます**（輪郭が画像の枠を単位空間としているため）。
+    private func editingMaskSize() -> (width: Int, height: Int) {
+        let imageSize = image.size
+        let longSide = max(imageSize.width, imageSize.height)
+
+        guard longSide > 0 else {
+            return (width: 1, height: 1)
+        }
+
+        let scale = Self.editingMaskLongSide / longSide
+
+        return (
+            width: max(1, Int((imageSize.width * scale).rounded())),
+            height: max(1, Int((imageSize.height * scale).rounded()))
+        )
+    }
+
+    private func refreshPreviewImage() {
+        previewImage = previewMask.flatMap { maskCodec.grayscaleImage(from: $0) }
     }
 
     // MARK: - 座標

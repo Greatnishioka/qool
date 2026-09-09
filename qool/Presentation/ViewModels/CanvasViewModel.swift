@@ -12,6 +12,9 @@ final class CanvasViewModel: ObservableObject {
     /// マスクを起こす画素数の上限（長辺）。
     static let maximumMaskLongSide: CGFloat = 1024
 
+    /// マスクから輪郭を導くときに「内側」とみなす被覆率。
+    static let maskContourThreshold: UInt8 = 128
+
     @Published private(set) var memo: Memo
     @Published var selectedTool: CanvasTool = .select
     @Published var selectedElementIDs: Set<CanvasElement.ID> = []
@@ -33,6 +36,7 @@ final class CanvasViewModel: ObservableObject {
     private let maskRasterizer = CutoutMaskRasterizer()
     private let maskCodec = CutoutMaskPNGCodec()
     private let maskFilters = CutoutMaskFilters()
+    private let maskContourDeriver: any MaskContourDeriverProtocol = MaskContourDeriverInfrastructure()
     private let importImageUseCase: ImportImageUseCase
     private let cropGeometry = CutoutCropGeometry()
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
@@ -71,6 +75,11 @@ final class CanvasViewModel: ObservableObject {
         self.onSave = onSave
     }
 
+    /// 要素が持つマスク。切り抜きシートが編集の土台にします。
+    func cutoutMask(for element: CanvasElement) -> CutoutMask? {
+        element.cutoutMask.flatMap { maskStore.mask(for: $0, in: memo.id) }
+    }
+
     /// 描画に使うマスク。余白のぶん膨らませた形です。持っていなければ `nil`。
     func drawingMask(for element: CanvasElement) -> CutoutDrawingMask? {
         maskStore.drawingMask(for: element, in: memo.id)
@@ -107,20 +116,39 @@ final class CanvasViewModel: ObservableObject {
         mask: CutoutMask? = nil,
         to elementID: CanvasElement.ID
     ) -> Bool {
-        guard !contours.isEmpty else {
+        // **マスクがあれば輪郭はそこから導きます。** 手直しはマスクに対して行うので、
+        // 渡された輪郭は古いことがあります。正はマスクです。
+        let resolved = mask.map(derivedContours(from:)) ?? contours
+
+        guard !resolved.isEmpty else {
             return false
         }
 
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
-            element.pathContours = contours
+            element.pathContours = resolved
             element.isClosedPath = true
         }
-        cropSourceImage(of: elementID)
-        // **切り詰めたあとに保存します。** 先に保存すると、画素の意味する範囲が切り詰めでずれます。
-        storeCutoutMask(mask, of: elementID)
+        // **切り詰めで枠が変わるので、マスクの覆う範囲も同じだけ取り直します。**
+        // 掛けないと切り詰め前の座標のまま解釈され、絵が縮んで見えます。
+        let crop = cropSourceImage(of: elementID)
+        let adjusted = crop.flatMap { crop in mask.flatMap { cropGeometry.applied(crop, to: $0) } } ?? mask
+
+        storeCutoutMask(adjusted, of: elementID)
         save()
 
         return true
+    }
+
+    /// マスクから輪郭を導く。**フローティングメモの外形となぞり直しの土台に要ります。**
+    private func derivedContours(from mask: CutoutMask) -> [CanvasPathContour] {
+        maskContourDeriver
+            .contours(from: mask, threshold: Self.maskContourThreshold)
+            .map { points in
+                CanvasPathContour(
+                    points: points.map { NormalizedPoint(x: Double($0.x), y: Double($0.y)) },
+                    isClosed: true
+                )
+            }
     }
 
     /// マスクを保存し、要素へ参照を持たせる。
@@ -195,10 +223,11 @@ final class CanvasViewModel: ObservableObject {
     ///
     /// **見た目は変わりません。** 画像が小さくなるぶん枠も縮め、輪郭を取り直します。
     /// 置き換えられなくても静かに諦めます。原寸のままでも表示は正しいためです。
-    private func cropSourceImage(of elementID: CanvasElement.ID) {
+    @discardableResult
+    private func cropSourceImage(of elementID: CanvasElement.ID) -> CutoutCrop? {
         guard let element = memo.canvas.elements.first(where: { $0.id == elementID }),
               let sourceImage = image(for: element)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return
+            return nil
         }
 
         let pixelSize = CGSize(width: sourceImage.width, height: sourceImage.height)
@@ -211,12 +240,14 @@ final class CanvasViewModel: ObservableObject {
               let cropped = sourceImage.cropping(to: crop.pixelRect),
               let data = CanvasImageStore.pngData(from: cropped),
               let assetID = try? importImageUseCase(data, in: memo.id) else {
-            return
+            return nil
         }
 
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
             element = cropGeometry.applied(crop, to: element, assetID: assetID)
         }
+
+        return crop
     }
 
     /// なぞりから作った候補。推奨 → スコア降順 → 手描き の順で並びます。**要素は変えません。**

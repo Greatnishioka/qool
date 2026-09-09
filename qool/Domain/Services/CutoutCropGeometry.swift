@@ -117,6 +117,31 @@ nonisolated struct CutoutCropGeometry {
         return updated
     }
 
+    /// 切り詰めた枠を基準に、マスクの覆う範囲を取り直す。
+    ///
+    /// **輪郭と同じ変換をマスクにも掛ける必要があります。** 掛けないと、
+    /// 切り詰め前の座標のまま新しい枠で解釈され、絵が縮んで見えます。
+    /// 画素はそのままで、覆う範囲だけが変わります。
+    func applied(_ crop: CutoutCrop, to mask: CutoutMask) -> CutoutMask? {
+        let cropRect = crop.normalizedRect
+
+        guard cropRect.width > 0, cropRect.height > 0 else {
+            return nil
+        }
+
+        return CutoutMask(
+            extent: CGRect(
+                x: (mask.extent.minX - cropRect.minX) / cropRect.width,
+                y: (mask.extent.minY - cropRect.minY) / cropRect.height,
+                width: mask.extent.width / cropRect.width,
+                height: mask.extent.height / cropRect.height
+            ),
+            width: mask.width,
+            height: mask.height,
+            coverage: mask.coverage
+        )
+    }
+
     /// 切り詰めを取り消し、元画像を表示する要素へ戻す。`applied` の逆です。
     ///
     /// **枠は今の位置を基準に広げます。** 切り詰めたあとに動かしていても、

@@ -254,6 +254,39 @@ struct CanvasCutoutTests {
         }
     }
 
+    /// **マスクを渡せば、輪郭はそこから導かれます。**
+    /// 手直しはマスクに対して行うので、渡された輪郭は古いことがあります。
+    @Test func マスクを渡すと輪郭はマスクから導かれる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            // 中央だけを覆うマスク。渡す輪郭とは形が違います。
+            var coverage = [UInt8](repeating: 0, count: 64 * 64)
+            for row in 20..<44 {
+                for column in 20..<44 {
+                    coverage[row * 64 + column] = 255
+                }
+            }
+            let mask = try #require(CutoutMask(width: 64, height: 64, coverage: coverage))
+
+            // 画面いっぱいの輪郭を渡しますが、マスクが優先されます。
+            let wide = CanvasPathContour(points: [
+                NormalizedPoint(x: 0, y: 0),
+                NormalizedPoint(x: 1, y: 0),
+                NormalizedPoint(x: 1, y: 1),
+                NormalizedPoint(x: 0, y: 1)
+            ])
+
+            #expect(viewModel.applyCutout(contours: [wide], mask: mask, to: element.id))
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+            let points = try #require(updated.pathContours.first).points
+            let minimumX = points.map(\.x).min() ?? 0
+
+            #expect(updated.cutoutMask != nil)
+            // 導かれた輪郭は中央の範囲に収まり、渡した全面の輪郭ではありません。
+            #expect(minimumX > 0.1)
+        }
+    }
+
     /// 候補を作るだけでは要素を変えません。
     @Test func 候補の生成は要素を変えない() async throws {
         try await withImportedImage { viewModel, element, image in

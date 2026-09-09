@@ -92,6 +92,7 @@ struct CanvasView: View {
                 ImageCutoutView(
                     image: image,
                     existingContours: element.pathContours,
+                    existingMask: viewModel.cutoutMask(for: element),
                     makeCandidates: viewModel.cutoutCandidates,
                     onApply: { viewModel.applyCutout(contours: $0, mask: $1, to: element.id) },
                     onClear: { viewModel.clearCutout(of: element.id) },
