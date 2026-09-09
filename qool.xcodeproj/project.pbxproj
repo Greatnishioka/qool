@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		D9BCA0012FAE0001008D6132 /* iOverlay in Frameworks */ = {isa = PBXBuildFile; productRef = D9BCA0002FAE0001008D6132 /* iOverlay */; };
+		D9BCA0122FAE0001008D6132 /* OpenCV in Frameworks */ = {isa = PBXBuildFile; productRef = D9BCA0112FAE0001008D6132 /* OpenCV */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D9BCA0012FAE0001008D6132 /* iOverlay in Frameworks */,
+				D9BCA0122FAE0001008D6132 /* OpenCV in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			name = qool;
 			packageProductDependencies = (
 				D9BCA0002FAE0001008D6132 /* iOverlay */,
+				D9BCA0112FAE0001008D6132 /* OpenCV */,
 			);
 			productName = qool;
 			productReference = D9BC1EE62FAB8D11008D6132 /* qool.app */;
@@ -203,6 +206,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				D9BCA0022FAE0001008D6132 /* XCRemoteSwiftPackageReference "iOverlay" */,
+				D9BCA0102FAE0001008D6132 /* XCRemoteSwiftPackageReference "opencv-spm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D9BC1EE72FAB8D11008D6132 /* Products */;
@@ -605,6 +609,14 @@
 				minimumVersion = 1.22.0;
 			};
 		};
+		D9BCA0102FAE0001008D6132 /* XCRemoteSwiftPackageReference "opencv-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/yeatse/opencv-spm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -612,6 +624,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D9BCA0022FAE0001008D6132 /* XCRemoteSwiftPackageReference "iOverlay" */;
 			productName = iOverlay;
+		};
+		D9BCA0112FAE0001008D6132 /* OpenCV */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D9BCA0102FAE0001008D6132 /* XCRemoteSwiftPackageReference "opencv-spm" */;
+			productName = OpenCV;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

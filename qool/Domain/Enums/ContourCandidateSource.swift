@@ -5,9 +5,11 @@ import CoreGraphics
 /// `bias` はスコアに直接加算される優先度です（[抽出器の一覧](../../../docs/image-editing/02-contour-extractors.md)）。
 /// Vision の被写体マスクが最優先、矩形補正は「他に何もなければ」という位置づけになっています。
 ///
-/// **まだ実装があるのは `rectangularGuide` だけです。** 残りは順に移植します。
+/// **実装があるのは `rectangularGuide` / `subjectMask` / `grabCut` の 3 つです。**
+/// 残りは順に移植します。
 nonisolated enum ContourCandidateSource: String, CaseIterable, Identifiable, Hashable {
     case subjectMask
+    case grabCut
     case preprocessedContour
     case backgroundDifference
     case lineColorContour
@@ -21,6 +23,8 @@ nonisolated enum ContourCandidateSource: String, CaseIterable, Identifiable, Has
         switch self {
         case .subjectMask:
             "被写体"
+        case .grabCut:
+            "領域分割"
         case .preprocessedContour:
             "前処理"
         case .backgroundDifference:
@@ -40,6 +44,8 @@ nonisolated enum ContourCandidateSource: String, CaseIterable, Identifiable, Has
         switch self {
         case .subjectMask:
             "Vision の被写体マスクから作った候補です"
+        case .grabCut:
+            "なぞった範囲を種にして、色の分布から前景と背景を分けた候補です"
         case .preprocessedContour:
             "画像を二値化寄りに前処理してから輪郭検出した候補です"
         case .backgroundDifference:
@@ -59,6 +65,10 @@ nonisolated enum ContourCandidateSource: String, CaseIterable, Identifiable, Has
         switch self {
         case .subjectMask:
             0.55
+        // **被写体マスクよりわずかに下です。** 検出が効く画像では Vision のほうが安定し、
+        // 効かない画像（枠線のない被写体など）では Vision 自体が候補を出しません。
+        case .grabCut:
+            0.5
         case .preprocessedContour:
             0.24
         case .rawVisionContour:
@@ -80,7 +90,8 @@ nonisolated enum ContourCandidateSource: String, CaseIterable, Identifiable, Has
         switch self {
         case .coloredRectangle, .rectangularGuide:
             false
-        case .subjectMask, .preprocessedContour, .backgroundDifference, .lineColorContour, .rawVisionContour:
+        case .subjectMask, .grabCut, .preprocessedContour, .backgroundDifference,
+             .lineColorContour, .rawVisionContour:
             true
         }
     }
