@@ -86,6 +86,7 @@ final class FloatingMemoPresenter {
                 memo: memo,
                 outline: outline,
                 imageStore: viewModel.imageStore,
+                maskStore: viewModel.maskStore,
                 onEdit: { [weak self] in self?.viewModel.requestCanvas(for: memo.id) },
                 onRemove: { [weak self] in self?.unpin(memo.id) }
             ),

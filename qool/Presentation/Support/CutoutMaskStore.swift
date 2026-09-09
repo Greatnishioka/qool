@@ -19,7 +19,10 @@ final class CutoutMaskStore {
 
     private let repository: any ImageAssetRepositoryProtocol
     private let codec: CutoutMaskPNGCodec
+    private let filters = CutoutMaskFilters()
     private let cache = NSCache<NSString, CachedMask>()
+    /// 膨らませた結果。余白の値ごとに別物なので分けて持ちます。
+    private let dilatedCache = NSCache<NSString, CachedMask>()
 
     init(
         repository: any ImageAssetRepositoryProtocol,
@@ -29,19 +32,53 @@ final class CutoutMaskStore {
         self.repository = repository
         self.codec = codec
         cache.totalCostLimit = costLimit
+        dilatedCache.totalCostLimit = costLimit
     }
 
     func mask(for reference: CutoutMaskReference, in memoID: Memo.ID) -> CutoutMask? {
         cached(for: reference, in: memoID)?.mask
     }
 
-    /// 描画で使うマスク画像。被覆率をそのまま濃さとして持つ 1 チャンネルの画像です。
-    func image(for reference: CutoutMaskReference, in memoID: Memo.ID) -> CGImage? {
-        cached(for: reference, in: memoID)?.image
+    /// 描画に使うマスク。**余白のぶん膨らませた形**を返します。
+    ///
+    /// **膨張はここで一度だけ行い、結果を持ちます。** `body` の中で計算すると、
+    /// ドラッグ中に毎フレーム画素をなめることになります。
+    func drawingMask(for element: CanvasElement, in memoID: Memo.ID) -> CutoutDrawingMask? {
+        guard let reference = element.cutoutMask,
+              let mask = mask(for: reference, in: memoID) else {
+            return nil
+        }
+
+        let adjustment = element.imageAdjustment
+        // 外側ぼかしは、ぼけた分だけ形が外へ出ます。内側ぼかしは輪郭の内側で完結します。
+        let outset = CGFloat(adjustment.padding + (adjustment.blurDirection == .inward ? 0 : adjustment.blur))
+        let radius = filters.radius(forPointPadding: outset, mask: mask, elementSize: element.frame.size)
+
+        guard radius.x > 0 || radius.y > 0 else {
+            return cached(for: reference, in: memoID)?.image.map {
+                CutoutDrawingMask(image: $0, extent: mask.extent)
+            }
+        }
+
+        let key = Self.key(for: reference, in: memoID, radius: radius) as NSString
+
+        if let cached = dilatedCache.object(forKey: key) {
+            return cached.image.map { CutoutDrawingMask(image: $0, extent: cached.mask.extent) }
+        }
+
+        guard let dilated = filters.dilated(mask, radiusX: radius.x, radiusY: radius.y) else {
+            return nil
+        }
+
+        let entry = CachedMask(mask: dilated, image: codec.grayscaleImage(from: dilated))
+        dilatedCache.setObject(entry, forKey: key, cost: dilated.coverage.count * 2)
+
+        return entry.image.map { CutoutDrawingMask(image: $0, extent: dilated.extent) }
     }
 
     func removeAll() {
         cache.removeAllObjects()
+        dilatedCache.removeAllObjects()
     }
 
     private func cached(for reference: CutoutMaskReference, in memoID: Memo.ID) -> CachedMask? {
@@ -74,6 +111,15 @@ final class CutoutMaskStore {
         \(extent.minX),\(extent.minY),\(extent.width),\(extent.height)
         """ as NSString
     }
+
+    /// 膨らませた結果の鍵。半径まで含めないと、余白を変えても古い形が返ります。
+    private static func key(
+        for reference: CutoutMaskReference,
+        in memoID: Memo.ID,
+        radius: (x: Int, y: Int)
+    ) -> String {
+        "\(key(for: reference, in: memoID))/\(radius.x)x\(radius.y)"
+    }
 }
 
 private final class CachedMask {
@@ -84,4 +130,11 @@ private final class CachedMask {
         self.mask = mask
         self.image = image
     }
+}
+
+
+/// 描画に使うマスク。膨らませたあとの形なので、覆う範囲も元とは違います。
+struct CutoutDrawingMask {
+    let image: CGImage
+    let extent: CGRect
 }

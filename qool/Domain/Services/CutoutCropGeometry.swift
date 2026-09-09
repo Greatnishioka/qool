@@ -93,6 +93,9 @@ nonisolated struct CutoutCropGeometry {
         var updated = element
         updated.imageSource = source(of: element, croppedBy: cropRect)
         updated.imageAssetID = assetID
+        // **マスクは持ち越しません。** 画素の意味する範囲が変わるので、
+        // 切り詰めたあとに焼き直します。
+        updated.cutoutMask = nil
         updated.frame = CGRect(
             x: element.frame.minX + cropRect.minX * element.frame.width,
             y: element.frame.minY + cropRect.minY * element.frame.height,
@@ -132,6 +135,7 @@ nonisolated struct CutoutCropGeometry {
         var updated = element
         updated.imageAssetID = source.assetID
         updated.imageSource = nil
+        updated.cutoutMask = nil
         updated.frame = CGRect(
             x: element.frame.minX - cropRect.minX * width,
             y: element.frame.minY - cropRect.minY * height,

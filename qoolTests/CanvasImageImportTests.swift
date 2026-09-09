@@ -21,6 +21,7 @@ struct CanvasImageImportTests {
         let viewModel = CanvasViewModel(
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
+            maskStore: CutoutMaskStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
             onSave: { _ in }
         )

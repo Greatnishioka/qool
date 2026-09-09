@@ -20,6 +20,7 @@ struct CanvasCutoutTests {
         let viewModel = CanvasViewModel(
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
+            maskStore: CutoutMaskStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
             onSave: { _ in }
         )
@@ -109,6 +110,7 @@ struct CanvasCutoutTests {
         let viewModel = CanvasViewModel(
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
+            maskStore: CutoutMaskStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
             onSave: { _ in }
         )
@@ -180,6 +182,7 @@ struct CanvasCutoutTests {
         let viewModel = CanvasViewModel(
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
+            maskStore: CutoutMaskStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
             onSave: { _ in }
         )
@@ -207,6 +210,48 @@ struct CanvasCutoutTests {
         #expect(abs(restored.frame.minX - element.frame.minX) < 0.0001)
         #expect(abs(restored.frame.minY - element.frame.minY) < 0.0001)
         #expect(viewModel.image(for: restored) != nil)
+    }
+
+    /// **適用でマスクが焼かれることの確認。** 輪郭も残します。
+    /// マスクを読めなかったときの描画と、なぞり直しの土台に要るためです。
+    @Test func 切り抜くとマスクが焼かれる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+
+            #expect(updated.cutoutMask != nil)
+            #expect(!updated.pathContours.isEmpty)
+            #expect(viewModel.drawingMask(for: updated) != nil)
+        }
+    }
+
+    /// マスクは切り詰めたあとに焼きます。先に焼くと画素の意味する範囲がずれます。
+    @Test func マスクの覆う範囲は輪郭に沿って絞られる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+            let extent = try #require(updated.cutoutMask?.extent)
+
+            // 全面ではなく、輪郭のある範囲まで絞られています。
+            #expect(extent.width <= 1)
+            #expect(extent.height <= 1)
+            #expect(extent.width > 0)
+        }
+    }
+
+    @Test func 解除するとマスクも捨てる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
+            #expect(viewModel.memo.canvas.elements.first?.cutoutMask != nil)
+
+            viewModel.clearCutout(of: element.id)
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+            #expect(updated.cutoutMask == nil)
+            #expect(viewModel.drawingMask(for: updated) == nil)
+        }
     }
 
     /// 候補を作るだけでは要素を変えません。

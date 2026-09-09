@@ -33,6 +33,7 @@ struct CanvasView: View {
             wrappedValue: CanvasViewModel(
                 memo: memo,
                 imageStore: rootViewModel.imageStore,
+                maskStore: rootViewModel.maskStore,
                 importImageUseCase: rootViewModel.importImageUseCase
             ) { updatedMemo in
                 Task { await rootViewModel.saveMemo(updatedMemo) }

@@ -130,7 +130,11 @@ nonisolated struct CutoutMaskPNGCodec {
         return CutoutMask(extent: extent, width: width, height: height, coverage: coverage)
     }
 
-    /// 描画に使う 1 チャンネルの画像。
+    /// 1 チャンネルの画像。保存にも描画のマスクにも使います。
+    ///
+    /// **不透明度ではなく明るさで持ちます。** 不透明度だけの画像は色空間を
+    /// 持たない指定が要り、Swift の `CGImage` の初期化子では作れません。
+    /// 描画側が `luminanceToAlpha()` で明るさを不透明度へ読み替えます。
     func grayscaleImage(from mask: CutoutMask) -> CGImage? {
         guard let provider = CGDataProvider(data: Data(mask.coverage) as CFData) else {
             return nil

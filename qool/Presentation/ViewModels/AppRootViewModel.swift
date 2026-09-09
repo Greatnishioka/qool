@@ -33,6 +33,7 @@ final class AppRootViewModel: ObservableObject {
 
     /// キャンバスへ引き渡すもの。画像は `Memo` に含めないため、別経路で解決します。
     let imageStore: CanvasImageStore
+    let maskStore: CutoutMaskStore
     let importImageUseCase: ImportImageUseCase
     private let pruneImageAssetsUseCase: PruneImageAssetsUseCase
     private let flushMemosUseCase: FlushMemosUseCase
@@ -50,6 +51,7 @@ final class AppRootViewModel: ObservableObject {
         observeWriteStatesUseCase: ObserveWriteStatesUseCase,
         settings: any AppSettingsProtocol,
         imageStore: CanvasImageStore,
+        maskStore: CutoutMaskStore,
         importImageUseCase: ImportImageUseCase,
         pruneImageAssetsUseCase: PruneImageAssetsUseCase,
         elementFactory: CanvasElementFactory
@@ -61,6 +63,7 @@ final class AppRootViewModel: ObservableObject {
         self.updateFloatingOriginUseCase = updateFloatingOriginUseCase
         self.settings = settings
         self.imageStore = imageStore
+        self.maskStore = maskStore
         self.importImageUseCase = importImageUseCase
         self.pruneImageAssetsUseCase = pruneImageAssetsUseCase
         self.flushMemosUseCase = flushMemosUseCase
@@ -120,6 +123,7 @@ final class AppRootViewModel: ObservableObject {
             observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
             settings: settings,
             imageStore: CanvasImageStore(repository: imageRepository),
+            maskStore: CutoutMaskStore(repository: imageRepository),
             importImageUseCase: ImportImageUseCase(repository: imageRepository),
             pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: imageRepository),
             elementFactory: CanvasElementFactory()

@@ -119,7 +119,15 @@ struct CutoutMaskStorageTests {
             let reference = try #require(makeReference(assetID, mask.extent))
 
             #expect(store.mask(for: reference, in: memo.id)?.coverage == mask.coverage)
-            #expect(store.image(for: reference, in: memo.id) != nil)
+
+            // 描画に使う形も取り出せます。余白 0 なので膨らませません。
+            let element = CanvasElement(
+                kind: .imageCutout,
+                frame: CGRect(x: 0, y: 0, width: 100, height: 100),
+                fillColor: .clear,
+                cutoutMask: reference
+            )
+            #expect(store.drawingMask(for: element, in: memo.id) != nil)
         }
     }
 

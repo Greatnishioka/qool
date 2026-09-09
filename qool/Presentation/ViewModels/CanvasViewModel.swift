@@ -5,6 +5,9 @@ import Foundation
 
 @MainActor
 final class CanvasViewModel: ObservableObject {
+    /// マスクを起こす画素数の上限（長辺）。
+    static let maximumMaskLongSide: CGFloat = 2048
+
     @Published private(set) var memo: Memo
     @Published var selectedTool: CanvasTool = .select
     @Published var selectedElementIDs: Set<CanvasElement.ID> = []
@@ -22,6 +25,9 @@ final class CanvasViewModel: ObservableObject {
     private let reorderElementsUseCase: ReorderCanvasElementsUseCase
     private let resizeElementUseCase = ResizeCanvasElementUseCase()
     private let imageStore: CanvasImageStore
+    private let maskStore: CutoutMaskStore
+    private let maskRasterizer = CutoutMaskRasterizer()
+    private let maskCodec = CutoutMaskPNGCodec()
     private let importImageUseCase: ImportImageUseCase
     private let cropGeometry = CutoutCropGeometry()
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
@@ -31,6 +37,7 @@ final class CanvasViewModel: ObservableObject {
     init(
         memo: Memo,
         imageStore: CanvasImageStore,
+        maskStore: CutoutMaskStore,
         importImageUseCase: ImportImageUseCase,
         buildCutoutContourUseCase: BuildCutoutContourUseCase = BuildCutoutContourUseCase(),
         buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase = BuildCutoutCandidatesUseCase(),
@@ -52,10 +59,16 @@ final class CanvasViewModel: ObservableObject {
         self.unionElementsUseCase = unionElementsUseCase
         self.reorderElementsUseCase = reorderElementsUseCase
         self.imageStore = imageStore
+        self.maskStore = maskStore
         self.importImageUseCase = importImageUseCase
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
         self.buildCutoutCandidatesUseCase = buildCutoutCandidatesUseCase
         self.onSave = onSave
+    }
+
+    /// 描画に使うマスク。余白のぶん膨らませた形です。持っていなければ `nil`。
+    func drawingMask(for element: CanvasElement) -> CutoutDrawingMask? {
+        maskStore.drawingMask(for: element, in: memo.id)
     }
 
     /// 要素が参照している画像。まだ読めていなければ `nil`。
@@ -91,9 +104,56 @@ final class CanvasViewModel: ObservableObject {
             element.isClosedPath = true
         }
         cropSourceImage(of: elementID)
+        // **切り詰めたあとに焼きます。** 先に焼くと、画素の意味する範囲が切り詰めでずれます。
+        bakeCutoutMask(of: elementID)
         save()
 
         return true
+    }
+
+    /// 輪郭からマスクを起こして保存し、要素へ参照を持たせる。
+    ///
+    /// **輪郭は残します。** なぞり直しの土台と、フローティングメモの外形に要ります。
+    private func bakeCutoutMask(of elementID: CanvasElement.ID) {
+        guard let element = memo.canvas.elements.first(where: { $0.id == elementID }),
+              !element.pathContours.isEmpty else {
+            return
+        }
+
+        let size = maskPixelSize(for: element)
+
+        guard let mask = maskRasterizer
+                  .mask(from: element.pathContours, width: size.width, height: size.height)?
+                  .trimmed(),
+              let data = maskCodec.encode(mask),
+              let assetID = try? importImageUseCase(data, in: memo.id),
+              let reference = CutoutMaskReference(assetID: assetID, extent: mask.extent) else {
+            return
+        }
+
+        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element.cutoutMask = reference
+        }
+    }
+
+    /// マスクを起こす画素数。
+    ///
+    /// **元画像の画素数に合わせ、上限で頭を打たせます。** 表示は長辺 320pt までなので、
+    /// 原寸の写真ぶんを抱える必要がありません。
+    private func maskPixelSize(for element: CanvasElement) -> (width: Int, height: Int) {
+        let fallback = CGSize(
+            width: max(1, element.frame.width * 2),
+            height: max(1, element.frame.height * 2)
+        )
+        let source = image(for: element)?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        let pixelSize = source.map { CGSize(width: $0.width, height: $0.height) } ?? fallback
+        let longSide = max(pixelSize.width, pixelSize.height)
+        let scale = longSide > Self.maximumMaskLongSide ? Self.maximumMaskLongSide / longSide : 1
+
+        return (
+            width: max(1, Int((pixelSize.width * scale).rounded())),
+            height: max(1, Int((pixelSize.height * scale).rounded()))
+        )
     }
 
     /// 輪郭が決まった元画像を、そのまわりだけ残して置き換える。
@@ -143,6 +203,7 @@ final class CanvasViewModel: ObservableObject {
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
             element = cropGeometry.restored(element)
             element.pathContours = []
+            element.cutoutMask = nil
         }
         save()
     }
