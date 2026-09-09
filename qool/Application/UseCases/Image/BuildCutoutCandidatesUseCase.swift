@@ -15,6 +15,7 @@ nonisolated struct BuildCutoutCandidatesUseCase {
 
     private let rectangularGuideContour: RectangularGuideContour
     private let subjectContourExtractor: any SubjectContourExtractorProtocol
+    private let grabCutContourExtractor: any SubjectContourExtractorProtocol
     private let selector: ContourCandidateSelector
     private let smoother: ContourSmoother
     private let buildContour: BuildCutoutContourUseCase
@@ -22,12 +23,14 @@ nonisolated struct BuildCutoutCandidatesUseCase {
     init(
         rectangularGuideContour: RectangularGuideContour = RectangularGuideContour(),
         subjectContourExtractor: any SubjectContourExtractorProtocol = SubjectMaskExtractorInfrastructure(),
+        grabCutContourExtractor: any SubjectContourExtractorProtocol = GrabCutContourExtractorInfrastructure(),
         selector: ContourCandidateSelector = ContourCandidateSelector(),
         smoother: ContourSmoother = ContourSmoother(),
         buildContour: BuildCutoutContourUseCase = BuildCutoutContourUseCase()
     ) {
         self.rectangularGuideContour = rectangularGuideContour
         self.subjectContourExtractor = subjectContourExtractor
+        self.grabCutContourExtractor = grabCutContourExtractor
         self.selector = selector
         self.smoother = smoother
         self.buildContour = buildContour
@@ -120,6 +123,16 @@ nonisolated struct BuildCutoutCandidatesUseCase {
                 ContourCandidate(
                     contour: subjectContour,
                     source: .subjectMask,
+                    minimumAreaRatio: Self.detectionMinimumAreaRatio
+                )
+            )
+        }
+
+        if let grabCutContour = await grabCutContourExtractor.extractContour(in: image, guidedBy: guide) {
+            candidates.append(
+                ContourCandidate(
+                    contour: grabCutContour,
+                    source: .grabCut,
                     minimumAreaRatio: Self.detectionMinimumAreaRatio
                 )
             )

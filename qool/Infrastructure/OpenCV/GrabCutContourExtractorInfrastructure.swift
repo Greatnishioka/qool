@@ -1,0 +1,169 @@
+import CoreGraphics
+import Foundation
+import opencv2
+
+/// なぞった範囲を種にして、色の分布から前景と背景を分ける。
+///
+/// **Vision の被写体マスクが効かない画像のための抽出器です。**
+/// 白背景の白い商品のように、被写体検出が曖昧なマスクしか返さない画像でも、
+/// 色に差があれば分離できます。
+///
+/// なぞり線をそのまま種として渡すのが要点です。矩形で初期化する使い方もありますが、
+/// **なぞりの形を捨てるとカップの取っ手のような凹みが最初から埋まります。**
+nonisolated struct GrabCutContourExtractorInfrastructure: SubjectContourExtractorProtocol {
+    /// 反復回数。増やすほど精度が上がりますが、その分遅くなります。
+    private static let iterationCount: Int32 = 4
+
+    /// 長辺をこの画素数まで縮めてから解きます。
+    /// **原寸のままだと数秒かかります。** 輪郭は縮小しても十分な精度で取れます。
+    private static let workingLongSide: Int32 = 512
+
+    /// 輪郭として成立する最小の点数。
+    private static let minimumPointCount = 8
+
+    /// なぞりの外側にも背景と決めつけない余地を残す幅（正規化）。
+    private static let guideMargin: CGFloat = 0.04
+
+    private let geometry = ContourGeometry()
+
+    init() {}
+
+    func extractContour(in image: CGImage, guidedBy guide: [CGPoint]) async -> [CGPoint]? {
+        guard guide.count >= 3 else {
+            return nil
+        }
+
+        let source = Mat(cgImage: image)
+        guard source.rows() > 0, source.cols() > 0 else {
+            return nil
+        }
+
+        let working = resized(source)
+        let rgb = Mat()
+        Imgproc.cvtColor(src: working, dst: rgb, code: .COLOR_RGBA2RGB)
+
+        let mask = seedMask(for: guide, width: rgb.cols(), height: rgb.rows())
+        let background = Mat()
+        let foreground = Mat()
+
+        Imgproc.grabCut(
+            img: rgb,
+            mask: mask,
+            rect: Rect2i(x: 0, y: 0, width: rgb.cols(), height: rgb.rows()),
+            bgdModel: background,
+            fgdModel: foreground,
+            iterCount: Self.iterationCount,
+            mode: GrabCutModes.GC_INIT_WITH_MASK.rawValue
+        )
+
+        return contour(from: mask, guidedBy: guide)
+    }
+
+    /// 長辺を `workingLongSide` に収めた画像。小さければそのまま使います。
+    private func resized(_ source: Mat) -> Mat {
+        let longSide = max(source.cols(), source.rows())
+        guard longSide > Self.workingLongSide else {
+            return source
+        }
+
+        let scale = Double(Self.workingLongSide) / Double(longSide)
+        let resized = Mat()
+        Imgproc.resize(
+            src: source,
+            dst: resized,
+            dsize: Size2i(
+                width: Int32((Double(source.cols()) * scale).rounded()),
+                height: Int32((Double(source.rows()) * scale).rounded())
+            ),
+            fx: 0,
+            fy: 0,
+            interpolation: InterpolationFlags.INTER_AREA.rawValue
+        )
+
+        return resized
+    }
+
+    /// 種になるマスク。
+    ///
+    /// - なぞりの内側 → 前景かもしれない
+    /// - なぞりの少し外まで → 背景かもしれない
+    /// - それより外 → 背景と決めつける
+    ///
+    /// **決めつける領域を作らないと `grabCut` が解けません。**
+    /// 全部が「かもしれない」だと、背景の色分布を推定する材料がなくなります。
+    private func seedMask(for guide: [CGPoint], width: Int32, height: Int32) -> Mat {
+        let mask = Mat(
+            rows: height,
+            cols: width,
+            type: CvType.CV_8UC1,
+            scalar: Scalar(Double(GrabCutClasses.GC_BGD.rawValue))
+        )
+
+        let margin = geometry.bounds(for: guide)
+            .insetBy(dx: -Self.guideMargin, dy: -Self.guideMargin)
+            .clampedToUnit()
+
+        Imgproc.rectangle(
+            img: mask,
+            rec: Rect2i(
+                x: Int32(margin.minX * CGFloat(width)),
+                y: Int32(margin.minY * CGFloat(height)),
+                width: max(1, Int32(margin.width * CGFloat(width))),
+                height: max(1, Int32(margin.height * CGFloat(height)))
+            ),
+            color: Scalar(Double(GrabCutClasses.GC_PR_BGD.rawValue)),
+            thickness: -1
+        )
+
+        let polygon = guide.map { point in
+            Point2i(x: Int32(point.x * CGFloat(width)), y: Int32(point.y * CGFloat(height)))
+        }
+        Imgproc.fillPoly(
+            img: mask,
+            pts: [polygon],
+            color: Scalar(Double(GrabCutClasses.GC_PR_FGD.rawValue))
+        )
+
+        return mask
+    }
+
+    /// `grabCut` の結果から輪郭を取り出し、なぞりに最も合う 1 本を返す。
+    private func contour(from mask: Mat, guidedBy guide: [CGPoint]) -> [CGPoint]? {
+        // 前景は「確定」と「たぶん」の 2 つ。どちらも残します。
+        let foreground = Mat()
+        let probableForeground = Mat()
+        let certain = Double(GrabCutClasses.GC_FGD.rawValue)
+        let probable = Double(GrabCutClasses.GC_PR_FGD.rawValue)
+        Core.inRange(src: mask, lowerb: Scalar(certain), upperb: Scalar(certain), dst: foreground)
+        Core.inRange(src: mask, lowerb: Scalar(probable), upperb: Scalar(probable), dst: probableForeground)
+
+        let binary = Mat()
+        Core.bitwise_or(src1: foreground, src2: probableForeground, dst: binary)
+
+        var contours: [[Point2i]] = []
+        Imgproc.findContours(
+            image: binary,
+            contours: &contours,
+            hierarchy: Mat(),
+            mode: .RETR_EXTERNAL,
+            // **点を畳みません。** 畳むと四角い被写体が 4 点になり、
+            // 点数の下限で弾かれます。`ContourSmoother` も密な点列を前提にしています。
+            // 間引きは後段の `ContourSimplifier` が担当します。
+            method: .CHAIN_APPROX_NONE
+        )
+
+        let width = CGFloat(mask.cols())
+        let height = CGFloat(mask.rows())
+        let guideBounds = geometry.bounds(for: guide)
+
+        return contours
+            .map { points in
+                points.map { CGPoint(x: CGFloat($0.x) / width, y: CGFloat($0.y) / height) }
+            }
+            .filter { $0.count >= Self.minimumPointCount }
+            .max { first, second in
+                geometry.overlapRatio(geometry.bounds(for: first), with: guideBounds)
+                    < geometry.overlapRatio(geometry.bounds(for: second), with: guideBounds)
+            }
+    }
+}
