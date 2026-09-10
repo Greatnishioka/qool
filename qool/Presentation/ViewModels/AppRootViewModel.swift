@@ -9,8 +9,6 @@ final class AppRootViewModel: ObservableObject {
 
     @Published private(set) var memos: [Memo] = []
     @Published var selectedMemo: Memo?
-    @Published var cutoutDraft = ImageCutoutDraft()
-    @Published var imageAdjustment = ImageAdjustment.default
 
     /// 保存の状態。失敗しているときだけ画面に出します。
     @Published private(set) var persistenceStatus: MemoPersistenceStatus = .ok
@@ -181,26 +179,6 @@ final class AppRootViewModel: ObservableObject {
         }
     }
 
-    /// 画像の枠を選択中のメモへ置く。
-    ///
-    /// **道具から要素を作る経路はここだけです。** キャンバス上で描く矩形や線は
-    /// ドラッグから [CanvasDraftElementBuilder](../../Domain/Services/CanvasDraftElementBuilder.swift)
-    /// が組み立てます。画像だけは描かずに置くので、こちらを通ります。
-    func addImageElement() async {
-        guard var memo = selectedMemo else {
-            return
-        }
-
-        memo.canvas.elements.append(
-            CanvasElement(
-                kind: .imageCutout,
-                frame: CGRect(x: 60, y: 80, width: 200, height: 160),
-                fillColor: .coral
-            )
-        )
-        await saveMemo(memo)
-    }
-
     func saveMemo(_ memo: Memo) async {
         let memo = preservingFieldsCanvasDoesNotOwn(memo)
 
@@ -259,16 +237,6 @@ final class AppRootViewModel: ObservableObject {
     /// 開き終えたら View 側が呼びます。**同じメモを続けて開けるように毎回戻します。**
     func clearCanvasRequest() {
         canvasRequest = nil
-    }
-
-    func updateAdjustment(_ adjustment: ImageAdjustment) {
-        imageAdjustment = adjustment
-    }
-
-    func commitImageMemo() async {
-        await addImageElement()
-        cutoutDraft = ImageCutoutDraft()
-        imageAdjustment = .default
     }
 
     /// 保留している書き込みを確定する。**アプリ終了時に必ず呼んでください。**

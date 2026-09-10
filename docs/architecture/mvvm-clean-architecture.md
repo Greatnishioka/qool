@@ -118,20 +118,8 @@ qool/
 `SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY` を有効にしたため、
 存在型に `any` を付け忘れるとコンパイラが指摘します。
 
-### StarWindow 側の import
+## ~~プラットフォーム~~（解消）
 
-移植元の全ファイルが機械的に `import AppKit / CoreImage / SwiftUI / UniformTypeIdentifiers / Vision` を
-書いています。**Domain 相当のファイルも例外ではない**ため、移植時に不要な import の除去が必要です
-（中身は `CGPoint` / `CGRect` しか使っていないので、除去するだけで済みます）。
-
-## プラットフォーム
-
-qool は現在 iOS / iPadOS ターゲットですが、[MVP](../product/mvp.md) は Mac 上で動くことを前提としており、
-**macOS アプリとして作り直す方針**です。
-
-UIKit に依存しているのは以下の 2 ファイルのみで、影響範囲は限定的です。
-
-- [`CanvasSurface.swift`](../../qool/Presentation/Views/Components/CanvasSurface.swift) — `UIPress` / `GameController` による Shift キー検出
-- [`CanvasPropertiesPanel.swift`](../../qool/Presentation/Views/Components/CanvasPropertiesPanel.swift) — `UIColor` による色成分の取得
-
-いずれも Presentation 層にあり、Domain / Application は UIKit に依存していません。
+iOS / iPadOS ターゲットで、`CanvasSurface` が `UIPress` / `GameController` を、
+`CanvasPropertiesPanel` が `UIColor` を使っていた状態は **macOS 専用へ作り直して解消しました。**
+UIKit への依存はありません。

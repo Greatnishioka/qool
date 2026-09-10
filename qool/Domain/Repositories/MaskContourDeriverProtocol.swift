@@ -2,9 +2,15 @@ import CoreGraphics
 
 /// マスクから輪郭を取り出す。
 ///
-/// **プレビューと採点にだけ使います。** 破線の表示と
-/// [ContourCandidateSelector](../Services/ContourCandidateSelector.swift) の採点は
-/// 輪郭を前提にしているので、マスクから導出して渡します。切り抜きの正はマスクのままです。
+/// **切り抜きの正はマスクのままです。** 輪郭は縁の半透明を表せないので、
+/// ここから出てくるのは常に「マスクから導いた写し」になります。
+///
+/// 輪郭を前提にしている経路が 4 つあり、そこへ渡すために要ります。
+///
+/// - 破線でのプレビュー表示
+/// - [ContourCandidateSelector](../Services/ContourCandidateSelector.swift) の採点
+/// - フローティングメモの外形（[CanvasElementPolygons](../Services/CanvasElementPolygons.swift)）
+/// - なぞり直しの土台
 nonisolated protocol MaskContourDeriverProtocol: Sendable {
     /// - Parameter threshold: これを超えた被覆率を内側とみなします。
     /// - Returns: 要素の枠を単位空間とした輪郭。面積の大きい順。
