@@ -6,6 +6,10 @@ struct CanvasView: View {
     @State private var isImportingImage = false
     /// 切り抜きシートの対象。開いた時点の要素を持ちます。
     @State private var cutoutTarget: CanvasElement?
+    /// 切り抜きシートへ渡すマスク。**復号を待ってから開きます。**
+    /// 無いまま開くと、輪郭から起こした 2 値のマスクが土台になり、
+    /// 縁の半透明が失われます。
+    @State private var cutoutMask: CutoutMask?
     /// 直近のキャンバスの大きさ。ツールバーからの取り込みは中央に置くため、これが要ります。
     @State private var canvasSize: CGSize = .zero
 
@@ -33,6 +37,7 @@ struct CanvasView: View {
             wrappedValue: CanvasViewModel(
                 memo: memo,
                 imageStore: rootViewModel.imageStore,
+                maskStore: rootViewModel.maskStore,
                 importImageUseCase: rootViewModel.importImageUseCase
             ) { updatedMemo in
                 Task { await rootViewModel.saveMemo(updatedMemo) }
@@ -46,7 +51,7 @@ struct CanvasView: View {
 
             ZStack(alignment: .bottom) {
                 HStack(spacing: 0) {
-                    CanvasSurface(viewModel: viewModel, canvasSize: $canvasSize)
+                    CanvasSurface(viewModel: viewModel, maskStore: viewModel.maskStore, canvasSize: $canvasSize)
                         .padding(.leading, 16)
                         .padding(.top, 16)
                         .padding(.bottom, 96)
@@ -79,7 +84,16 @@ struct CanvasView: View {
 
             ToolbarItem {
                 Button {
-                    cutoutTarget = viewModel.selectedElement
+                    // **マスクの復号を待ってから開きます。** 待たずに開くと、
+                    // 輪郭から起こした 2 値のマスクが土台になり半透明が失われます。
+                    guard let target = viewModel.selectedElement else {
+                        return
+                    }
+
+                    Task {
+                        cutoutMask = await viewModel.cutoutMask(for: target)
+                        cutoutTarget = target
+                    }
                 } label: {
                     Label("切り抜く", systemImage: "scissors")
                 }
@@ -91,10 +105,15 @@ struct CanvasView: View {
                 ImageCutoutView(
                     image: image,
                     existingContours: element.pathContours,
+                    existingMask: cutoutMask,
                     makeCandidates: viewModel.cutoutCandidates,
-                    onApply: { viewModel.applyCutout(contours: $0, to: element.id) },
+                    makeRegionMask: { await viewModel.regionMask(in: $0, at: $1, tolerance: $2) },
+                    onApply: { viewModel.applyCutout(contours: $0, mask: $1, to: element.id) },
                     onClear: { viewModel.clearCutout(of: element.id) },
-                    onDismiss: { cutoutTarget = nil },
+                    onDismiss: {
+                        cutoutTarget = nil
+                        cutoutMask = nil
+                    },
                     historyLimit: historyLimit
                 )
             }

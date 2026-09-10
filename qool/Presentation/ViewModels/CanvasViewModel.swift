@@ -5,6 +5,16 @@ import Foundation
 
 @MainActor
 final class CanvasViewModel: ObservableObject {
+    /// マスクを起こすときに、表示の大きさへ掛ける倍率。
+    /// 拡大しても縁が粗く見えないよう余裕を持たせます。
+    static let maskScale: CGFloat = 3
+
+    /// マスクを起こす画素数の上限（長辺）。
+    static let maximumMaskLongSide: CGFloat = 1024
+
+    /// マスクから輪郭を導くときに「内側」とみなす被覆率。
+    static let maskContourThreshold: UInt8 = 128
+
     @Published private(set) var memo: Memo
     @Published var selectedTool: CanvasTool = .select
     @Published var selectedElementIDs: Set<CanvasElement.ID> = []
@@ -22,6 +32,12 @@ final class CanvasViewModel: ObservableObject {
     private let reorderElementsUseCase: ReorderCanvasElementsUseCase
     private let resizeElementUseCase = ResizeCanvasElementUseCase()
     private let imageStore: CanvasImageStore
+    let maskStore: CutoutMaskStore
+    private let maskRasterizer = CutoutMaskRasterizer()
+    private let maskCodec = CutoutMaskPNGCodec()
+    private let maskFilters = CutoutMaskFilters()
+    private let maskContourDeriver: any MaskContourDeriverProtocol = MaskContourDeriverInfrastructure()
+    private let regionMaskExtractor: any RegionMaskExtractorProtocol = RegionFillExtractorInfrastructure()
     private let importImageUseCase: ImportImageUseCase
     private let cropGeometry = CutoutCropGeometry()
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
@@ -31,6 +47,7 @@ final class CanvasViewModel: ObservableObject {
     init(
         memo: Memo,
         imageStore: CanvasImageStore,
+        maskStore: CutoutMaskStore,
         importImageUseCase: ImportImageUseCase,
         buildCutoutContourUseCase: BuildCutoutContourUseCase = BuildCutoutContourUseCase(),
         buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase = BuildCutoutCandidatesUseCase(),
@@ -52,10 +69,37 @@ final class CanvasViewModel: ObservableObject {
         self.unionElementsUseCase = unionElementsUseCase
         self.reorderElementsUseCase = reorderElementsUseCase
         self.imageStore = imageStore
+        self.maskStore = maskStore
         self.importImageUseCase = importImageUseCase
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
         self.buildCutoutCandidatesUseCase = buildCutoutCandidatesUseCase
         self.onSave = onSave
+    }
+
+    /// 押した場所から色の近い範囲を広げたマスク。切り抜きシートの領域選択が使います。
+    func regionMask(in image: NSImage, at point: CGPoint, tolerance: Int) async -> CutoutMask? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+
+        return await regionMaskExtractor.regionMask(in: cgImage, at: point, tolerance: tolerance)
+    }
+
+    /// 要素が持つマスク。切り抜きシートが編集の土台にします。
+    ///
+    /// **復号を待ちます。** 無いと編集を始められないので、
+    /// 描画のように「無ければあとで」では済みません。
+    func cutoutMask(for element: CanvasElement) async -> CutoutMask? {
+        guard let reference = element.cutoutMask else {
+            return nil
+        }
+
+        return await maskStore.loadedMask(for: reference, in: memo.id)
+    }
+
+    /// 描画に使うマスク。余白のぶん膨らませた形です。持っていなければ `nil`。
+    func drawingMask(for element: CanvasElement) -> CutoutDrawingMask? {
+        maskStore.drawingMask(for: element, in: memo.id)
     }
 
     /// 要素が参照している画像。まだ読めていなければ `nil`。
@@ -80,30 +124,143 @@ final class CanvasViewModel: ObservableObject {
     }
 
     /// 候補から選んだ輪郭を要素へ反映する。
+    ///
+    /// - Parameter mask: 抽出器が返したマスク。**あればこれを正として保存し、
+    ///   輪郭からは焼き直しません。** 縁の半透明が残るのはこの経路だけです。
     @discardableResult
-    func applyCutout(contours: [CanvasPathContour], to elementID: CanvasElement.ID) -> Bool {
-        guard !contours.isEmpty else {
+    func applyCutout(
+        contours: [CanvasPathContour],
+        mask: CutoutMask? = nil,
+        to elementID: CanvasElement.ID
+    ) -> Bool {
+        // **マスクがあれば輪郭はそこから導きます。** 手直しはマスクに対して行うので、
+        // 渡された輪郭は古いことがあります。正はマスクです。
+        let resolved = mask.map(derivedContours(from:)) ?? contours
+
+        guard !resolved.isEmpty else {
+            return false
+        }
+
+        // **途中で失敗したら丸ごと巻き戻します。** 切り詰めだけ済んでマスクが無い、
+        // という半端な状態を残すと、絵と切り抜きが食い違ったまま保存されます。
+        let restorePoint = memo.canvas.elements
+
+        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element.pathContours = resolved
+            element.isClosedPath = true
+        }
+        // **切り詰めで枠が変わるので、マスクの覆う範囲も同じだけ取り直します。**
+        // 掛けないと切り詰め前の座標のまま解釈され、絵が縮んで見えます。
+        // **薄く覆っている部分まで含めて切り詰めます。** 輪郭はしきい値 128 を超えた
+        // 濃さしか表さないので、これが無いと髪やガラスの薄い部分の画像が捨てられます。
+        let crop = cropSourceImage(of: elementID, covering: mask?.trimmed(threshold: 0)?.extent)
+        let adjusted = crop.flatMap { crop in mask.flatMap { cropGeometry.applied(crop, to: $0) } } ?? mask
+
+        guard storeCutoutMask(adjusted, of: elementID) else {
+            memo.canvas.elements = restorePoint
+            return false
+        }
+
+        save()
+
+        return true
+    }
+
+    /// マスクから輪郭を導く。**フローティングメモの外形となぞり直しの土台に要ります。**
+    private func derivedContours(from mask: CutoutMask) -> [CanvasPathContour] {
+        maskContourDeriver
+            .contours(from: mask, threshold: Self.maskContourThreshold)
+            .map { points in
+                CanvasPathContour(
+                    points: points.map { NormalizedPoint(x: Double($0.x), y: Double($0.y)) },
+                    isClosed: true
+                )
+            }
+    }
+
+    /// マスクを保存し、要素へ参照を持たせる。
+    ///
+    /// **抽出器がマスクを返していればそれを使います。** 輪郭から焼き直すと、
+    /// 縁の半透明が 2 値に潰れて、マスクにした意味がなくなります。
+    /// 手直しした場合など、マスクが無いときだけ輪郭から焼きます。
+    /// - Returns: 保存できたか。**書けなければ `false`** を返し、呼び出し側が巻き戻します。
+    private func storeCutoutMask(_ extracted: CutoutMask?, of elementID: CanvasElement.ID) -> Bool {
+        guard let element = memo.canvas.elements.first(where: { $0.id == elementID }) else {
+            return false
+        }
+
+        let size = maskPixelSize(for: element)
+        let source = extracted.flatMap { maskFilters.resized($0, width: size.width, height: size.height) }
+
+        guard let mask = (source ?? rasterizedMask(for: element, size: size))?.trimmed(),
+              let data = maskCodec.encode(mask),
+              let assetID = try? importImageUseCase(data, in: memo.id),
+              let reference = CutoutMaskReference(assetID: assetID, extent: mask.extent) else {
             return false
         }
 
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
-            element.pathContours = contours
-            element.isClosedPath = true
+            element.cutoutMask = reference
         }
-        cropSourceImage(of: elementID)
-        save()
 
         return true
+    }
+
+    /// 輪郭から起こしたマスク。**抽出器のマスクが無いときの受け皿**です。
+    ///
+    /// **輪郭は残します。** なぞり直しの土台と、フローティングメモの外形に要ります。
+    private func rasterizedMask(
+        for element: CanvasElement,
+        size: (width: Int, height: Int)
+    ) -> CutoutMask? {
+        guard !element.pathContours.isEmpty else {
+            return nil
+        }
+
+        return maskRasterizer.mask(from: element.pathContours, width: size.width, height: size.height)
+    }
+
+    /// マスクを起こす画素数。**縦横の比は要素の枠に合わせます**（輪郭が枠を単位空間としているため）。
+    ///
+    /// **元画像ではなく表示の大きさで決めます。** 原寸の写真に合わせると、
+    /// 320pt で表示するために 1600 画素四方のマスクを抱えることになり、
+    /// 余白の計算だけで数秒かかりました（[#16](https://github.com/Greatnishioka/qool/issues/16)）。
+    ///
+    /// 元画像より細かくはしません。**画素を増やしても情報は増えません。**
+    private func maskPixelSize(for element: CanvasElement) -> (width: Int, height: Int) {
+        let frame = CGSize(
+            width: max(1, element.frame.width),
+            height: max(1, element.frame.height)
+        )
+        let frameLongSide = max(frame.width, frame.height)
+        let source = image(for: element)?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+
+        var longSide = min(frameLongSide * Self.maskScale, Self.maximumMaskLongSide)
+
+        if let source {
+            longSide = min(longSide, CGFloat(max(source.width, source.height)))
+        }
+
+        let scale = longSide / frameLongSide
+
+        return (
+            width: max(1, Int((frame.width * scale).rounded())),
+            height: max(1, Int((frame.height * scale).rounded()))
+        )
     }
 
     /// 輪郭が決まった元画像を、そのまわりだけ残して置き換える。
     ///
     /// **見た目は変わりません。** 画像が小さくなるぶん枠も縮め、輪郭を取り直します。
     /// 置き換えられなくても静かに諦めます。原寸のままでも表示は正しいためです。
-    private func cropSourceImage(of elementID: CanvasElement.ID) {
+    @discardableResult
+    private func cropSourceImage(
+        of elementID: CanvasElement.ID,
+        covering additionalBounds: CGRect? = nil
+    ) -> CutoutCrop? {
         guard let element = memo.canvas.elements.first(where: { $0.id == elementID }),
               let sourceImage = image(for: element)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return
+            return nil
         }
 
         let pixelSize = CGSize(width: sourceImage.width, height: sourceImage.height)
@@ -111,17 +268,20 @@ final class CanvasViewModel: ObservableObject {
         guard let crop = cropGeometry.crop(
                   for: element.pathContours,
                   imagePixelSize: pixelSize,
-                  displaySize: element.frame.size
+                  displaySize: element.frame.size,
+                  covering: additionalBounds
               ),
               let cropped = sourceImage.cropping(to: crop.pixelRect),
               let data = CanvasImageStore.pngData(from: cropped),
               let assetID = try? importImageUseCase(data, in: memo.id) else {
-            return
+            return nil
         }
 
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
             element = cropGeometry.applied(crop, to: element, assetID: assetID)
         }
+
+        return crop
     }
 
     /// なぞりから作った候補。推奨 → スコア降順 → 手描き の順で並びます。**要素は変えません。**
@@ -143,6 +303,7 @@ final class CanvasViewModel: ObservableObject {
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
             element = cropGeometry.restored(element)
             element.pathContours = []
+            element.cutoutMask = nil
         }
         save()
     }

@@ -8,6 +8,8 @@ import CoreGraphics
 nonisolated struct CutoutCandidate: Identifiable {
     let source: ContourCandidateSource?
     let contours: [CanvasPathContour]
+    /// 抽出器が返したマスク。**あればこれを切り抜きの正として保存します。**
+    var mask: CutoutMask?
     let score: CGFloat?
     /// 自動で選ばれた候補。スコアが基準を超えた中の最高得点です。
     let isRecommended: Bool

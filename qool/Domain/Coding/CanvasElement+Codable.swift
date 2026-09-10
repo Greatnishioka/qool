@@ -25,6 +25,7 @@ nonisolated extension CanvasElement {
         case imageAssetID
         case imageAdjustment
         case imageSource
+        case cutoutMask
         case unionSourceElements
     }
 
@@ -62,6 +63,7 @@ nonisolated extension CanvasElement {
                 forKey: .imageAdjustment
             ) ?? .default,
             imageSource: try container.decodeIfPresent(CutoutImageSource.self, forKey: .imageSource),
+            cutoutMask: try container.decodeIfPresent(CutoutMaskReference.self, forKey: .cutoutMask),
             unionSourceElements: try container.decodeIfPresent(
                 [CanvasElementSnapshot].self,
                 forKey: .unionSourceElements
@@ -92,6 +94,7 @@ nonisolated extension CanvasElement {
         try container.encodeIfPresent(imageAssetID, forKey: .imageAssetID)
         try container.encode(imageAdjustment, forKey: .imageAdjustment)
         try container.encodeIfPresent(imageSource, forKey: .imageSource)
+        try container.encodeIfPresent(cutoutMask, forKey: .cutoutMask)
         try container.encode(unionSourceElements, forKey: .unionSourceElements)
     }
 }

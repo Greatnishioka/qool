@@ -9,6 +9,10 @@ struct CanvasElementView: View {
     let isSelected: Bool
     /// 切り抜きの元画像。取り込み前や読み込み失敗では `nil` で、その場合は枠だけ描きます。
     let image: NSImage?
+    /// 切り抜きのマスク。**あれば輪郭より優先します。**
+    /// 縁に中間の被覆率を持てるので、輪郭で抜くよりなめらかになります。
+    /// まだ切り抜いていない要素や、マスクを読めなかった要素では `nil` です。
+    var drawingMask: CutoutDrawingMask?
 
     var body: some View {
         elementBody
@@ -76,7 +80,13 @@ struct CanvasElementView: View {
                     .resizable()
                     .brightness(element.imageAdjustment.brightness)
                     .opacity(element.imageAdjustment.opacity)
-                    .mask { cutoutMask(cutoutShape) }
+                    .mask {
+                        if let drawingMask {
+                            rasterMask(drawingMask)
+                        } else {
+                            cutoutMask(cutoutShape)
+                        }
+                    }
                     .overlay(strokeOverlay(cutoutShape))
             } else {
                 CutoutShape()
@@ -86,7 +96,29 @@ struct CanvasElementView: View {
         }
     }
 
-    /// 切り抜きのマスク。余白とぼかしをここで足します。
+    /// マスクで抜く。**余白は既に膨らませた形で渡ってきます。**
+    /// ここで膨らませると、`body` が走るたびに画素をなめることになります。
+    private func rasterMask(_ mask: CutoutDrawingMask) -> some View {
+        GeometryReader { proxy in
+            Image(decorative: mask.image, scale: 1)
+                .resizable()
+                .interpolation(.high)
+                .frame(
+                    width: mask.extent.width * proxy.size.width,
+                    height: mask.extent.height * proxy.size.height
+                )
+                .offset(
+                    x: mask.extent.minX * proxy.size.width,
+                    y: mask.extent.minY * proxy.size.height
+                )
+        }
+        // **明るさを不透明度として読み替えます。** `.mask` は不透明度で抜くため、
+        // 明るさで持った画像をそのまま渡すと全面が不透明とみなされて何も抜けません。
+        .luminanceToAlpha()
+        .blur(radius: element.imageAdjustment.blur)
+    }
+
+    /// 輪郭で抜く。**マスクを読めなかったときの受け皿**です。余白とぼかしをここで足します。
     ///
     /// **輪郭の点を計算し直さず、太い線で膨らませています。**
     /// `ContourPadding` で座標を作り直すと、`body` が走るたびに数百点の再計算が入り、

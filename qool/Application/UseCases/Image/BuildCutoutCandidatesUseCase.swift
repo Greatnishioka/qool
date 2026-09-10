@@ -12,25 +12,31 @@ nonisolated struct BuildCutoutCandidatesUseCase {
     private static let guidedMinimumAreaRatio: CGFloat = 0.18
     /// 検出ベースの抽出器（被写体マスクなど）に課す面積比の下限。
     private static let detectionMinimumAreaRatio: CGFloat = 0.55
+    /// マスクから輪郭を導くときに「内側」とみなす被覆率。
+    /// **表示と採点にだけ効きます。** マスク自体は連続値のまま保存します。
+    private static let maskThreshold: UInt8 = 128
 
     private let rectangularGuideContour: RectangularGuideContour
-    private let subjectContourExtractor: any SubjectContourExtractorProtocol
-    private let grabCutContourExtractor: any SubjectContourExtractorProtocol
+    private let subjectMaskExtractor: any CutoutMaskExtractorProtocol
+    private let grabCutMaskExtractor: any CutoutMaskExtractorProtocol
+    private let maskContourDeriver: any MaskContourDeriverProtocol
     private let selector: ContourCandidateSelector
     private let smoother: ContourSmoother
     private let buildContour: BuildCutoutContourUseCase
 
     init(
         rectangularGuideContour: RectangularGuideContour = RectangularGuideContour(),
-        subjectContourExtractor: any SubjectContourExtractorProtocol = SubjectMaskExtractorInfrastructure(),
-        grabCutContourExtractor: any SubjectContourExtractorProtocol = GrabCutContourExtractorInfrastructure(),
+        subjectMaskExtractor: any CutoutMaskExtractorProtocol = SubjectMaskExtractorInfrastructure(),
+        grabCutMaskExtractor: any CutoutMaskExtractorProtocol = GrabCutContourExtractorInfrastructure(),
+        maskContourDeriver: any MaskContourDeriverProtocol = MaskContourDeriverInfrastructure(),
         selector: ContourCandidateSelector = ContourCandidateSelector(),
         smoother: ContourSmoother = ContourSmoother(),
         buildContour: BuildCutoutContourUseCase = BuildCutoutContourUseCase()
     ) {
         self.rectangularGuideContour = rectangularGuideContour
-        self.subjectContourExtractor = subjectContourExtractor
-        self.grabCutContourExtractor = grabCutContourExtractor
+        self.subjectMaskExtractor = subjectMaskExtractor
+        self.grabCutMaskExtractor = grabCutMaskExtractor
+        self.maskContourDeriver = maskContourDeriver
         self.selector = selector
         self.smoother = smoother
         self.buildContour = buildContour
@@ -67,6 +73,7 @@ nonisolated struct BuildCutoutCandidatesUseCase {
                     candidate: CutoutCandidate(
                         source: candidate.source,
                         contours: contours(for: candidate),
+                        mask: candidate.mask,
                         score: scoreBySource[candidate.source],
                         isRecommended: candidate.source == recommendedSource
                     )
@@ -118,24 +125,22 @@ nonisolated struct BuildCutoutCandidatesUseCase {
     private func extract(in image: CGImage, from guide: [CGPoint]) async -> [ContourCandidate] {
         var candidates: [ContourCandidate] = []
 
-        if let subjectContour = await subjectContourExtractor.extractContour(in: image, guidedBy: guide) {
-            candidates.append(
-                ContourCandidate(
-                    contour: subjectContour,
-                    source: .subjectMask,
-                    minimumAreaRatio: Self.detectionMinimumAreaRatio
-                )
-            )
+        if let subject = await maskCandidate(
+            from: subjectMaskExtractor,
+            in: image,
+            guidedBy: guide,
+            source: .subjectMask
+        ) {
+            candidates.append(subject)
         }
 
-        if let grabCutContour = await grabCutContourExtractor.extractContour(in: image, guidedBy: guide) {
-            candidates.append(
-                ContourCandidate(
-                    contour: grabCutContour,
-                    source: .grabCut,
-                    minimumAreaRatio: Self.detectionMinimumAreaRatio
-                )
-            )
+        if let grabCut = await maskCandidate(
+            from: grabCutMaskExtractor,
+            in: image,
+            guidedBy: guide,
+            source: .grabCut
+        ) {
+            candidates.append(grabCut)
         }
 
         if let rectangularContour = rectangularGuideContour.detectContour(from: guide) {
@@ -149,6 +154,30 @@ nonisolated struct BuildCutoutCandidatesUseCase {
         }
 
         return candidates
+    }
+
+    /// マスクを返す抽出器から候補を作る。
+    ///
+    /// **輪郭はマスクから導出します。** プレビューの破線と採点は輪郭を前提にしているためで、
+    /// 切り抜きの正はマスクのままです。輪郭にできなければ候補として出しません
+    /// （採点も表示もできないため）。
+    private func maskCandidate(
+        from extractor: any CutoutMaskExtractorProtocol,
+        in image: CGImage,
+        guidedBy guide: [CGPoint],
+        source: ContourCandidateSource
+    ) async -> ContourCandidate? {
+        guard let mask = await extractor.extractMask(in: image, guidedBy: guide),
+              let contour = maskContourDeriver.contours(from: mask, threshold: Self.maskThreshold).first else {
+            return nil
+        }
+
+        return ContourCandidate(
+            contour: contour,
+            mask: mask,
+            source: source,
+            minimumAreaRatio: Self.detectionMinimumAreaRatio
+        )
     }
 
     /// 抽出器によっては、表示前に平滑化をかけます。

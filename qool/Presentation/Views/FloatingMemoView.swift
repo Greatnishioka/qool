@@ -5,6 +5,7 @@ struct FloatingMemoView: View {
     let memo: Memo
     let outline: FloatingMemoOutline
     let imageStore: CanvasImageStore
+    @ObservedObject var maskStore: CutoutMaskStore
     let onEdit: () -> Void
     let onRemove: () -> Void
 
@@ -42,7 +43,8 @@ struct FloatingMemoView: View {
                 CanvasElementView(
                     element: element,
                     isSelected: false,
-                    image: element.imageAssetID.flatMap { imageStore.image(for: $0, in: memo.id) }
+                    image: element.imageAssetID.flatMap { imageStore.image(for: $0, in: memo.id) },
+                    drawingMask: maskStore.drawingMask(for: element, in: memo.id)
                 )
             }
         }

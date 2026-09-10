@@ -262,6 +262,78 @@ struct ImageAssetLifecycleTests {
         #expect(cropGeometry.restored(element) == element)
     }
 
+    // MARK: - マスクの座標
+
+    /// **輪郭と同じ変換をマスクにも掛けます。**
+    /// 掛けないと切り詰め前の座標のまま新しい枠で解釈され、絵が縮んで見えます。
+    @Test func 切り詰めてもマスクの絶対位置は変わらない() throws {
+        let frame = CGRect(x: 100, y: 200, width: 400, height: 300)
+        let element = imageElement(
+            contours: [contour(CGRect(x: 0.3, y: 0.25, width: 0.4, height: 0.5))],
+            frame: frame
+        )
+        let crop = try #require(
+            cropGeometry.crop(
+                for: element.pathContours,
+                imagePixelSize: CGSize(width: 800, height: 600),
+                displaySize: frame.size
+            )
+        )
+
+        // 被写体と同じ範囲を覆うマスク。
+        let mask = try #require(
+            CutoutMask(
+                extent: CGRect(x: 0.3, y: 0.25, width: 0.4, height: 0.5),
+                width: 4,
+                height: 4,
+                coverage: [UInt8](repeating: 255, count: 16)
+            )
+        )
+
+        let cropped = cropGeometry.applied(crop, to: element, assetID: UUID())
+        let movedMask = try #require(cropGeometry.applied(crop, to: mask))
+
+        // 覆う範囲を画面の絶対座標へ戻すと、切り詰めの前後で一致します。
+        let before = CGRect(
+            x: frame.minX + mask.extent.minX * frame.width,
+            y: frame.minY + mask.extent.minY * frame.height,
+            width: mask.extent.width * frame.width,
+            height: mask.extent.height * frame.height
+        )
+        let after = CGRect(
+            x: cropped.frame.minX + movedMask.extent.minX * cropped.frame.width,
+            y: cropped.frame.minY + movedMask.extent.minY * cropped.frame.height,
+            width: movedMask.extent.width * cropped.frame.width,
+            height: movedMask.extent.height * cropped.frame.height
+        )
+
+        #expect(abs(before.minX - after.minX) < 0.0001)
+        #expect(abs(before.minY - after.minY) < 0.0001)
+        #expect(abs(before.width - after.width) < 0.0001)
+        #expect(abs(before.height - after.height) < 0.0001)
+    }
+
+    /// 画素はそのままで、覆う範囲だけが変わります。
+    @Test func 切り詰めでマスクの画素は変わらない() throws {
+        let element = imageElement(
+            contours: [contour(CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2))],
+            frame: CGRect(x: 0, y: 0, width: 400, height: 400)
+        )
+        let crop = try #require(
+            cropGeometry.crop(
+                for: element.pathContours,
+                imagePixelSize: CGSize(width: 1000, height: 1000),
+                displaySize: element.frame.size
+            )
+        )
+        let mask = try #require(CutoutMask(width: 2, height: 2, coverage: [1, 2, 3, 4]))
+
+        let moved = try #require(cropGeometry.applied(crop, to: mask))
+
+        #expect(moved.coverage == mask.coverage)
+        #expect(moved.width == mask.width)
+    }
+
     // MARK: - 使われなくなった画像の掃除
 
     private func withTemporaryRepository(

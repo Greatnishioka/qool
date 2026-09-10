@@ -35,10 +35,14 @@ nonisolated struct CutoutCropGeometry {
     ///
     /// - Parameter displaySize: キャンバス上で画像を描いている大きさ。
     ///   画素と表示ポイントの比を出すために要ります。
+    /// - Parameter covering: 必ず含める範囲。**薄く覆っている部分を切り落とさないため**に渡します。
+    ///   輪郭はしきい値を超えた濃さの部分しか表さないので、髪やガラスのような
+    ///   薄い被覆が輪郭の外にあると、これが無いと画像側が捨てられます。
     func crop(
         for contours: [CanvasPathContour],
         imagePixelSize: CGSize,
-        displaySize: CGSize
+        displaySize: CGSize,
+        covering additionalBounds: CGRect? = nil
     ) -> CutoutCrop? {
         let points = contours.flatMap { contour in
             contour.points.map { CGPoint(x: $0.x, y: $0.y) }
@@ -51,7 +55,9 @@ nonisolated struct CutoutCropGeometry {
         }
 
         let margin = marginPixels(imagePixelSize: imagePixelSize, displaySize: displaySize)
-        let requested = geometry.bounds(for: points)
+        let covered = additionalBounds.map { geometry.bounds(for: points).union($0) }
+            ?? geometry.bounds(for: points)
+        let requested = covered
             .insetBy(dx: -margin / imagePixelSize.width, dy: -margin / imagePixelSize.height)
             .clampedToUnit()
 
@@ -93,6 +99,9 @@ nonisolated struct CutoutCropGeometry {
         var updated = element
         updated.imageSource = source(of: element, croppedBy: cropRect)
         updated.imageAssetID = assetID
+        // **マスクは持ち越しません。** 画素の意味する範囲が変わるので、
+        // 切り詰めたあとに焼き直します。
+        updated.cutoutMask = nil
         updated.frame = CGRect(
             x: element.frame.minX + cropRect.minX * element.frame.width,
             y: element.frame.minY + cropRect.minY * element.frame.height,
@@ -114,6 +123,31 @@ nonisolated struct CutoutCropGeometry {
         return updated
     }
 
+    /// 切り詰めた枠を基準に、マスクの覆う範囲を取り直す。
+    ///
+    /// **輪郭と同じ変換をマスクにも掛ける必要があります。** 掛けないと、
+    /// 切り詰め前の座標のまま新しい枠で解釈され、絵が縮んで見えます。
+    /// 画素はそのままで、覆う範囲だけが変わります。
+    func applied(_ crop: CutoutCrop, to mask: CutoutMask) -> CutoutMask? {
+        let cropRect = crop.normalizedRect
+
+        guard cropRect.width > 0, cropRect.height > 0 else {
+            return nil
+        }
+
+        return CutoutMask(
+            extent: CGRect(
+                x: (mask.extent.minX - cropRect.minX) / cropRect.width,
+                y: (mask.extent.minY - cropRect.minY) / cropRect.height,
+                width: mask.extent.width / cropRect.width,
+                height: mask.extent.height / cropRect.height
+            ),
+            width: mask.width,
+            height: mask.height,
+            coverage: mask.coverage
+        )
+    }
+
     /// 切り詰めを取り消し、元画像を表示する要素へ戻す。`applied` の逆です。
     ///
     /// **枠は今の位置を基準に広げます。** 切り詰めたあとに動かしていても、
@@ -132,6 +166,7 @@ nonisolated struct CutoutCropGeometry {
         var updated = element
         updated.imageAssetID = source.assetID
         updated.imageSource = nil
+        updated.cutoutMask = nil
         updated.frame = CGRect(
             x: element.frame.minX - cropRect.minX * width,
             y: element.frame.minY - cropRect.minY * height,

@@ -13,6 +13,8 @@ struct CanvasSurface: View {
     }
 
     @ObservedObject var viewModel: CanvasViewModel
+    /// **マスクは裏で用意されます。** できた時点で描き直すために監視します。
+    @ObservedObject var maskStore: CutoutMaskStore
 
     /// キャンバスの実寸。ツールバーからの取り込みで中央を求めるため、親へ返します。
     @Binding var canvasSize: CGSize
@@ -71,7 +73,8 @@ struct CanvasSurface: View {
             CanvasElementView(
                 element: resizingPreview(of: element),
                 isSelected: selectedElementIDs.contains(element.id),
-                image: viewModel.image(for: element)
+                image: viewModel.image(for: element),
+                drawingMask: viewModel.drawingMask(for: element)
             )
             .offset(dragOffset(for: element.id))
             .allowsHitTesting(false)
@@ -83,7 +86,8 @@ struct CanvasSurface: View {
             CanvasElementView(
                 element: sourceElement.element,
                 isSelected: selectedUnionSourceID == sourceElement.id,
-                image: viewModel.image(for: sourceElement.element)
+                image: viewModel.image(for: sourceElement.element),
+                drawingMask: viewModel.drawingMask(for: sourceElement.element)
             )
             .opacity(selectedUnionSourceID == sourceElement.id ? 0.62 : 0.34)
             .offset(unionSourceOffset(for: sourceElement.id))

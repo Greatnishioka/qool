@@ -20,6 +20,7 @@ struct CanvasCutoutTests {
         let viewModel = CanvasViewModel(
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
+            maskStore: CutoutMaskStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
             onSave: { _ in }
         )
@@ -109,6 +110,7 @@ struct CanvasCutoutTests {
         let viewModel = CanvasViewModel(
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
+            maskStore: CutoutMaskStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
             onSave: { _ in }
         )
@@ -180,6 +182,7 @@ struct CanvasCutoutTests {
         let viewModel = CanvasViewModel(
             memo: Memo(title: "テスト"),
             imageStore: CanvasImageStore(repository: repository),
+            maskStore: CutoutMaskStore(repository: repository),
             importImageUseCase: ImportImageUseCase(repository: repository),
             onSave: { _ in }
         )
@@ -207,6 +210,160 @@ struct CanvasCutoutTests {
         #expect(abs(restored.frame.minX - element.frame.minX) < 0.0001)
         #expect(abs(restored.frame.minY - element.frame.minY) < 0.0001)
         #expect(viewModel.image(for: restored) != nil)
+    }
+
+    /// **適用でマスクが焼かれることの確認。** 輪郭も残します。
+    /// マスクを読めなかったときの描画と、なぞり直しの土台に要るためです。
+    @Test func 切り抜くとマスクが焼かれる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+
+            #expect(updated.cutoutMask != nil)
+            #expect(!updated.pathContours.isEmpty)
+            // 描画に使う形は裏で用意されるので、待ってから確かめます。
+            #expect(await viewModel.cutoutMask(for: updated) != nil)
+        }
+    }
+
+    /// マスクは切り詰めたあとに焼きます。先に焼くと画素の意味する範囲がずれます。
+    @Test func マスクの覆う範囲は輪郭に沿って絞られる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+            let extent = try #require(updated.cutoutMask?.extent)
+
+            // 全面ではなく、輪郭のある範囲まで絞られています。
+            #expect(extent.width <= 1)
+            #expect(extent.height <= 1)
+            #expect(extent.width > 0)
+        }
+    }
+
+    @Test func 解除するとマスクも捨てる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            viewModel.applyCutout(tracePoints: squareTrace(), to: element.id)
+            #expect(viewModel.memo.canvas.elements.first?.cutoutMask != nil)
+
+            viewModel.clearCutout(of: element.id)
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+            #expect(updated.cutoutMask == nil)
+            #expect(await viewModel.cutoutMask(for: updated) == nil)
+        }
+    }
+
+    /// **マスクを渡せば、輪郭はそこから導かれます。**
+    /// 手直しはマスクに対して行うので、渡された輪郭は古いことがあります。
+    @Test func マスクを渡すと輪郭はマスクから導かれる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            // 中央だけを覆うマスク。渡す輪郭とは形が違います。
+            var coverage = [UInt8](repeating: 0, count: 64 * 64)
+            for row in 20..<44 {
+                for column in 20..<44 {
+                    coverage[row * 64 + column] = 255
+                }
+            }
+            let mask = try #require(CutoutMask(width: 64, height: 64, coverage: coverage))
+
+            // 画面いっぱいの輪郭を渡しますが、マスクが優先されます。
+            let wide = CanvasPathContour(points: [
+                NormalizedPoint(x: 0, y: 0),
+                NormalizedPoint(x: 1, y: 0),
+                NormalizedPoint(x: 1, y: 1),
+                NormalizedPoint(x: 0, y: 1)
+            ])
+
+            #expect(viewModel.applyCutout(contours: [wide], mask: mask, to: element.id))
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+            let points = try #require(updated.pathContours.first).points
+            let minimumX = points.map(\.x).min() ?? 0
+
+            #expect(updated.cutoutMask != nil)
+            // 導かれた輪郭は中央の範囲に収まり、渡した全面の輪郭ではありません。
+            #expect(minimumX > 0.1)
+        }
+    }
+
+    /// **既存の切り抜きがあっても、新しい形で置き換わります。**
+    /// 手描きと矩形補正はマスクを持たないので、土台に既存のマスクを選ぶと
+    /// 新しい輪郭が捨てられ、古い切り抜きのまま適用されます。
+    @Test func マスクのない輪郭で既存の切り抜きを置き換えられる() async throws {
+        try await withImportedImage { viewModel, element, image in
+            // 中央だけを覆うマスクで 1 度切り抜きます。
+            var coverage = [UInt8](repeating: 0, count: 64 * 64)
+            for row in 22..<42 {
+                for column in 22..<42 {
+                    coverage[row * 64 + column] = 255
+                }
+            }
+            let central = try #require(CutoutMask(width: 64, height: 64, coverage: coverage))
+
+            #expect(viewModel.applyCutout(contours: [], mask: central, to: element.id))
+
+            let cutout = try #require(viewModel.memo.canvas.elements.first)
+            let before = try #require(await viewModel.cutoutMask(for: cutout))
+            let cornerBefore = before.value(at: CGPoint(x: 0.05, y: 0.05))
+
+            #expect(cornerBefore == 0)
+
+            // ほぼ全面の輪郭を、マスクなしで適用します（手描き・矩形補正の経路）。
+            let wide = CanvasPathContour(points: [
+                NormalizedPoint(x: 0.02, y: 0.02),
+                NormalizedPoint(x: 0.98, y: 0.02),
+                NormalizedPoint(x: 0.98, y: 0.98),
+                NormalizedPoint(x: 0.02, y: 0.98)
+            ])
+
+            #expect(viewModel.applyCutout(contours: [wide], mask: nil, to: element.id))
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+            let after = try #require(await viewModel.cutoutMask(for: updated))
+            let cornerAfter = after.value(at: CGPoint(x: 0.05, y: 0.05))
+
+            // 古いマスクが土台に残っていれば、ここは 0 のままです。
+            #expect(cornerAfter > 200)
+        }
+    }
+
+    /// **薄い被覆は輪郭の外にあります。** 輪郭はしきい値を超えた濃さしか表さないので、
+    /// 輪郭だけで切り詰め先を決めると、髪やガラスにあたる部分の画像が捨てられます。
+    /// 濃い核だけなら切り詰められること（`切り抜くと元画像が切り詰められる`）との対です。
+    @Test func 薄い被覆があれば元画像を切り詰めない() async throws {
+        try await withImportedImage { viewModel, element, image in
+            var coverage = [UInt8](repeating: 0, count: 64 * 64)
+
+            // ほぼ全面を薄く覆います。輪郭にはなりません。
+            for row in 4..<60 {
+                for column in 4..<60 {
+                    coverage[row * 64 + column] = 40
+                }
+            }
+            // 中央の濃い核。輪郭になるのはここだけです。
+            for row in 26..<38 {
+                for column in 26..<38 {
+                    coverage[row * 64 + column] = 255
+                }
+            }
+            let mask = try #require(CutoutMask(width: 64, height: 64, coverage: coverage))
+
+            #expect(viewModel.applyCutout(contours: [], mask: mask, to: element.id))
+
+            let updated = try #require(viewModel.memo.canvas.elements.first)
+
+            // 核だけで決めていれば、その周りまで切り詰められて `imageSource` が付きます。
+            #expect(updated.imageSource == nil)
+
+            let stored = try #require(await viewModel.cutoutMask(for: updated))
+            let faint = stored.value(at: CGPoint(x: 0.1, y: 0.1))
+
+            // 薄い覆いが 2 値へ潰れていないこと。
+            #expect(faint > 0)
+            #expect(faint < 128)
+        }
     }
 
     /// 候補を作るだけでは要素を変えません。
