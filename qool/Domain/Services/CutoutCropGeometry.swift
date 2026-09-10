@@ -35,10 +35,14 @@ nonisolated struct CutoutCropGeometry {
     ///
     /// - Parameter displaySize: キャンバス上で画像を描いている大きさ。
     ///   画素と表示ポイントの比を出すために要ります。
+    /// - Parameter covering: 必ず含める範囲。**薄く覆っている部分を切り落とさないため**に渡します。
+    ///   輪郭はしきい値を超えた濃さの部分しか表さないので、髪やガラスのような
+    ///   薄い被覆が輪郭の外にあると、これが無いと画像側が捨てられます。
     func crop(
         for contours: [CanvasPathContour],
         imagePixelSize: CGSize,
-        displaySize: CGSize
+        displaySize: CGSize,
+        covering additionalBounds: CGRect? = nil
     ) -> CutoutCrop? {
         let points = contours.flatMap { contour in
             contour.points.map { CGPoint(x: $0.x, y: $0.y) }
@@ -51,7 +55,9 @@ nonisolated struct CutoutCropGeometry {
         }
 
         let margin = marginPixels(imagePixelSize: imagePixelSize, displaySize: displaySize)
-        let requested = geometry.bounds(for: points)
+        let covered = additionalBounds.map { geometry.bounds(for: points).union($0) }
+            ?? geometry.bounds(for: points)
+        let requested = covered
             .insetBy(dx: -margin / imagePixelSize.width, dy: -margin / imagePixelSize.height)
             .clampedToUnit()
 

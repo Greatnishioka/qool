@@ -222,7 +222,8 @@ struct CanvasCutoutTests {
 
             #expect(updated.cutoutMask != nil)
             #expect(!updated.pathContours.isEmpty)
-            #expect(viewModel.drawingMask(for: updated) != nil)
+            // 描画に使う形は裏で用意されるので、待ってから確かめます。
+            #expect(await viewModel.cutoutMask(for: updated) != nil)
         }
     }
 
@@ -250,7 +251,7 @@ struct CanvasCutoutTests {
 
             let updated = try #require(viewModel.memo.canvas.elements.first)
             #expect(updated.cutoutMask == nil)
-            #expect(viewModel.drawingMask(for: updated) == nil)
+            #expect(await viewModel.cutoutMask(for: updated) == nil)
         }
     }
 

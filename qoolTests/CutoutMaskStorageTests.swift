@@ -97,20 +97,20 @@ struct CutoutMaskStorageTests {
     // MARK: - 保管庫とキャッシュ
 
     private func withTemporaryRepository(
-        _ body: (FileImageAssetRepositoryInfrastructure) throws -> Void
-    ) throws {
+        _ body: (FileImageAssetRepositoryInfrastructure) async throws -> Void
+    ) async throws {
         let root = URL.temporaryDirectory.appending(
             path: "qool-tests-\(UUID().uuidString)",
             directoryHint: .isDirectory
         )
         defer { try? FileManager.default.removeItem(at: root) }
 
-        try body(FileImageAssetRepositoryInfrastructure(rootDirectory: root))
+        try await body(FileImageAssetRepositoryInfrastructure(rootDirectory: root))
     }
 
     /// **元画像と同じ保管庫に置きます。** 保存の仕組みも掃除も使い回せます。
-    @Test func 保管庫へ保存して読み戻せる() throws {
-        try withTemporaryRepository { repository in
+    @Test func 保管庫へ保存して読み戻せる() async throws {
+        try await withTemporaryRepository { repository in
             let memo = Memo(title: "マスク")
             let mask = try #require(gradientMask())
             let assetID = try repository.save(try #require(codec.encode(mask)), in: memo.id)
@@ -118,9 +118,9 @@ struct CutoutMaskStorageTests {
             let store = CutoutMaskStore(repository: repository)
             let reference = try #require(makeReference(assetID, mask.extent))
 
-            #expect(store.mask(for: reference, in: memo.id)?.coverage == mask.coverage)
+            #expect(await store.loadedMask(for: reference, in: memo.id)?.coverage == mask.coverage)
 
-            // 描画に使う形も取り出せます。余白 0 なので膨らませません。
+            // 復号が済んでいれば、描画に使う形も取り出せます。余白 0 なので膨らませません。
             let element = CanvasElement(
                 kind: .imageCutout,
                 frame: CGRect(x: 0, y: 0, width: 100, height: 100),
@@ -133,8 +133,8 @@ struct CutoutMaskStorageTests {
 
     /// **同じ画像を別の範囲で参照したときの確認。**
     /// 鍵が `assetID` だけだと、先に読んだ範囲が返り続けます。
-    @Test func 覆う範囲が違えば別のマスクを返す() throws {
-        try withTemporaryRepository { repository in
+    @Test func 覆う範囲が違えば別のマスクを返す() async throws {
+        try await withTemporaryRepository { repository in
             let memo = Memo(title: "範囲")
             let mask = try #require(gradientMask())
             let assetID = try repository.save(try #require(codec.encode(mask)), in: memo.id)
@@ -143,14 +143,14 @@ struct CutoutMaskStorageTests {
             let wide = try #require(makeReference(assetID, CGRect(x: 0, y: 0, width: 1, height: 1)))
             let narrow = try #require(makeReference(assetID, CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)))
 
-            #expect(store.mask(for: wide, in: memo.id)?.extent == wide.extent)
-            #expect(store.mask(for: narrow, in: memo.id)?.extent == narrow.extent)
+            #expect(await store.loadedMask(for: wide, in: memo.id)?.extent == wide.extent)
+            #expect(await store.loadedMask(for: narrow, in: memo.id)?.extent == narrow.extent)
         }
     }
 
     /// アセットはメモに属します。**メモが違えば別物です。**
-    @Test func メモが違えば別のマスクを返す() throws {
-        try withTemporaryRepository { repository in
+    @Test func メモが違えば別のマスクを返す() async throws {
+        try await withTemporaryRepository { repository in
             let first = Memo(title: "1 つめ")
             let second = Memo(title: "2 つめ")
             let mask = try #require(gradientMask())
@@ -158,25 +158,25 @@ struct CutoutMaskStorageTests {
             let store = CutoutMaskStore(repository: repository)
             let reference = try #require(makeReference(assetID, mask.extent))
 
-            #expect(store.mask(for: reference, in: first.id) != nil)
+            #expect(await store.loadedMask(for: reference, in: first.id) != nil)
             // 2 つめのメモには同じ ID のアセットがありません。
-            #expect(store.mask(for: reference, in: second.id) == nil)
+            #expect(await store.loadedMask(for: reference, in: second.id) == nil)
         }
     }
 
-    @Test func 保存されていない参照はnilになる() throws {
-        try withTemporaryRepository { repository in
+    @Test func 保存されていない参照はnilになる() async throws {
+        try await withTemporaryRepository { repository in
             let store = CutoutMaskStore(repository: repository)
             let missing = try #require(makeReference(UUID(), CGRect(x: 0, y: 0, width: 1, height: 1)))
 
-            #expect(store.mask(for: missing, in: Memo(title: "無し").id) == nil)
+            #expect(await store.loadedMask(for: missing, in: Memo(title: "無し").id) == nil)
         }
     }
 
     // MARK: - 掃除
 
-    @Test func 参照されているマスクは掃除で残る() throws {
-        try withTemporaryRepository { repository in
+    @Test func 参照されているマスクは掃除で残る() async throws {
+        try await withTemporaryRepository { repository in
             let memo = Memo(title: "掃除")
             let maskID = try repository.save(Data([0x89, 0x50, 0x4E, 0x47]), in: memo.id)
             let orphanID = try repository.save(Data([0x89, 0x50, 0x4E, 0x47]), in: memo.id)
@@ -200,8 +200,8 @@ struct CutoutMaskStorageTests {
     }
 
     /// 結合の構成元が持つマスクも残します。結合は解けるためです。
-    @Test func 結合の構成元が持つマスクも残る() throws {
-        try withTemporaryRepository { repository in
+    @Test func 結合の構成元が持つマスクも残る() async throws {
+        try await withTemporaryRepository { repository in
             let memo = Memo(title: "結合")
             let maskID = try repository.save(Data([0x89, 0x50, 0x4E, 0x47]), in: memo.id)
             let source = CanvasElement(

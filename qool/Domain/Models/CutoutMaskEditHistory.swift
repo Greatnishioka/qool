@@ -9,6 +9,11 @@ nonisolated struct CutoutMaskEditHistory {
     /// 戻せる手数の範囲。設定で変えられます。
     static let limitRange = ContourEditHistory.limitRange
 
+    /// 抱えてよい差分の総量。**手数だけでは足りません。**
+    /// 全面を塗り替える 1 手は 1024×1024 で 2MB あり、手数の上限まで積むと 1GB になります。
+    /// 設定画面が示している上限と揃えています。
+    static let maximumTotalBytes = 32 * 1024 * 1024
+
     /// 1 手ぶんの差分。**戻す用と進む用の両方を持ちます。**
     /// 片方だけだと、戻したあとにやり直せません。
     private struct Patch {
@@ -18,11 +23,14 @@ nonisolated struct CutoutMaskEditHistory {
         let height: Int
         let before: [UInt8]
         let after: [UInt8]
+
+        var byteCount: Int { before.count + after.count }
     }
 
     private(set) var current: CutoutMask
 
     private var patches: [Patch] = []
+    private var totalBytes = 0
     /// 次に戻すときに使う添字。ここより後ろはやり直しで使います。
     private var position = 0
     private let limit: Int
@@ -37,7 +45,11 @@ nonisolated struct CutoutMaskEditHistory {
 
     /// 手直しの結果を積む。**格子が違うものは受け付けません。**
     mutating func record(_ mask: CutoutMask) {
-        guard mask.width == current.width, mask.height == current.height else {
+        // **`extent` も一致していなければ積みません。** 画素だけ戻して覆う範囲が
+        // 戻らないと、元のマスクへ復元できません。
+        guard mask.width == current.width,
+              mask.height == current.height,
+              mask.extent == current.extent else {
             return
         }
 
@@ -47,11 +59,16 @@ nonisolated struct CutoutMaskEditHistory {
         }
 
         // やり直せる分は捨てます。枝分かれを持つと、どちらが正か決められません。
+        for discarded in patches[position...] {
+            totalBytes -= discarded.byteCount
+        }
         patches.removeSubrange(position...)
-        patches.append(patch)
 
-        if patches.count > limit {
-            patches.removeFirst(patches.count - limit)
+        patches.append(patch)
+        totalBytes += patch.byteCount
+
+        while patches.count > limit || (totalBytes > Self.maximumTotalBytes && patches.count > 1) {
+            totalBytes -= patches.removeFirst().byteCount
         }
 
         position = patches.count

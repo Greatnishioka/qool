@@ -78,9 +78,11 @@ nonisolated struct CutoutMaskFilters {
         let pointsPerPixelX = elementSize.width * mask.extent.width / CGFloat(mask.width)
         let pointsPerPixelY = elementSize.height * mask.extent.height / CGFloat(mask.height)
 
+        // **切り上げます。** 四捨五入だと、細かいマスクで小さい余白が 0 画素に落ち、
+        // 指定した余白より狭くなります。
         return (
-            x: max(0, Int((padding / max(pointsPerPixelX, 0.0001)).rounded())),
-            y: max(0, Int((padding / max(pointsPerPixelY, 0.0001)).rounded()))
+            x: max(1, Int((padding / max(pointsPerPixelX, 0.0001)).rounded(.up))),
+            y: max(1, Int((padding / max(pointsPerPixelY, 0.0001)).rounded(.up)))
         )
     }
 

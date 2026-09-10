@@ -13,6 +13,8 @@ struct CanvasSurface: View {
     }
 
     @ObservedObject var viewModel: CanvasViewModel
+    /// **マスクは裏で用意されます。** できた時点で描き直すために監視します。
+    @ObservedObject var maskStore: CutoutMaskStore
 
     /// キャンバスの実寸。ツールバーからの取り込みで中央を求めるため、親へ返します。
     @Binding var canvasSize: CGSize

@@ -145,25 +145,4 @@ nonisolated struct SubjectMaskExtractorInfrastructure: CutoutMaskExtractorProtoc
             return 0
         }
     }
-
-    private func instanceLabel(
-        baseAddress: UnsafeMutableRawPointer,
-        bytesPerRow: Int,
-        pixelFormat: OSType,
-        x: Int,
-        y: Int
-    ) -> Int {
-        let row = baseAddress.advanced(by: y * bytesPerRow)
-
-        switch pixelFormat {
-        case kCVPixelFormatType_OneComponent8:
-            return Int(row.assumingMemoryBound(to: UInt8.self)[x])
-        case kCVPixelFormatType_OneComponent16:
-            return Int(row.assumingMemoryBound(to: UInt16.self)[x])
-        case kCVPixelFormatType_OneComponent32Float:
-            return Int(row.assumingMemoryBound(to: Float.self)[x].rounded())
-        default:
-            return 0
-        }
-    }
 }

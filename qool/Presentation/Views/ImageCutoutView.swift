@@ -6,9 +6,9 @@ import SwiftUI
 /// **正確になぞる必要はありません。** なぞりは `ContourSmoother` が整えるための下地で、
 /// トゲが取れ、直線は直線に寄り、角は残ります。
 ///
-/// なぞって決めたあとは、ペン・消しゴム・投げ縄で手直しできます。
-/// **手直しはラスターマスクを使わず、多角形の合成で行います**
-/// （[方式の判断](../../../docs/image-editing/04-integration-plan.md)）。
+/// なぞって決めたあとは、ペン・消しゴム・投げ縄・領域選択で手直しできます。
+/// **手直しはマスクに対して行います。** 多角形では縁の半透明や
+/// ブラシの柔らかさを表せません（[設計](https://github.com/Greatnishioka/qool/issues/12)）。
 struct ImageCutoutView: View {
     /// 前の点からこれ以下しか動いていない点は捨てる（正規化距離）。
     /// 間引かないと 1 回のドラッグで数千点になり、平滑化が重くなります。
@@ -46,7 +46,8 @@ struct ImageCutoutView: View {
     let makeCandidates: (NSImage, [CGPoint]) async -> [CutoutCandidate]
     /// 押した場所から色の近い範囲を広げる。領域選択の道具が使います。
     let makeRegionMask: (NSImage, CGPoint, Int) -> CutoutMask?
-    let onApply: ([CanvasPathContour], CutoutMask?) -> Void
+    /// 適用できたかを返します。**失敗したらシートを閉じません。**
+    let onApply: ([CanvasPathContour], CutoutMask?) -> Bool
     let onClear: () -> Void
     let onDismiss: () -> Void
     /// 戻せる手数。設定で変えられます。
@@ -460,8 +461,10 @@ struct ImageCutoutView: View {
 
             // 手直しした形をそのまま渡します。**候補を渡すと手直しが捨てられます。**
             Button("適用") {
-                onApply(previewContours, previewMask)
-                onDismiss()
+                // **失敗したら閉じません。** 閉じると手直しの結果ごと消えます。
+                if onApply(previewContours, previewMask) {
+                    onDismiss()
+                }
             }
             .keyboardShortcut(.defaultAction)
             .disabled(previewMask == nil)
@@ -588,8 +591,10 @@ struct ImageCutoutView: View {
     /// 土台を作り直す。なぞり直し・候補の選び直し・シートを開いた直後に呼びます。
     private func rebuildBaseMask() {
         let size = editingMaskSize()
-        let source = selectedCandidate?.mask
-            ?? existingMask
+        // **なぞり直したら既存のマスクは使いません。** 候補がマスクを持たない
+        // （矩形補正・手描き）ときに既存へ落ちると、新しい輪郭が捨てられます。
+        let extracted = tracePoints.isEmpty ? existingMask : selectedCandidate?.mask
+        let source = extracted
             ?? maskRasterizer.mask(
                 from: previewContours,
                 width: size.width,

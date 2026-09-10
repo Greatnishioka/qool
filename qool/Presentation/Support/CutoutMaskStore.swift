@@ -1,3 +1,4 @@
+import Combine
 import CoreGraphics
 import Foundation
 
@@ -10,7 +11,7 @@ import Foundation
 /// [CutoutMaskPNGCodec](../../Infrastructure/Persistence/CutoutMaskPNGCodec.swift) の仕事です。
 /// ここは表示のための持ち回しだけを担います。
 @MainActor
-final class CutoutMaskStore {
+final class CutoutMaskStore: ObservableObject {
     /// 抱えてよい画素数のおおよその上限。
     ///
     /// **上限が無いとメモを見て回るだけで増え続けます。** 長辺 2048 のマスクが
@@ -23,6 +24,9 @@ final class CutoutMaskStore {
     private let cache = NSCache<NSString, CachedMask>()
     /// 膨らませた結果。余白の値ごとに別物なので分けて持ちます。
     private let dilatedCache = NSCache<NSString, CachedMask>()
+    /// 用意している最中の鍵。**同じものを何度も走らせないため**に持ちます。
+    /// `body` は 1 秒に何度も走るので、これが無いと同じ計算が積み上がります。
+    private var preparing: Set<String> = []
 
     init(
         repository: any ImageAssetRepositoryProtocol,
@@ -35,8 +39,35 @@ final class CutoutMaskStore {
         dilatedCache.totalCostLimit = costLimit
     }
 
+    /// 復号済みのマスク。**まだ用意できていなければ `nil`** を返し、裏で用意します。
     func mask(for reference: CutoutMaskReference, in memoID: Memo.ID) -> CutoutMask? {
         cached(for: reference, in: memoID)?.mask
+    }
+
+    /// 復号を待って取り出す。切り抜きシートを開くときのように、
+    /// **無いと始められない場面**で使います。
+    func loadedMask(for reference: CutoutMaskReference, in memoID: Memo.ID) async -> CutoutMask? {
+        if let cached = cached(for: reference, in: memoID) {
+            return cached.mask
+        }
+
+        guard let data = repository.data(for: reference.assetID, in: memoID) else {
+            return nil
+        }
+
+        let codec = self.codec
+        let extent = reference.extent
+        let decoded = await Task.detached(priority: .userInitiated) {
+            codec.decode(data, extent: extent)
+        }.value
+
+        guard let decoded else {
+            return nil
+        }
+
+        store(decoded, for: reference, in: memoID)
+
+        return decoded
     }
 
     /// 描画に使うマスク。**余白のぶん膨らませた形**を返します。
@@ -60,20 +91,50 @@ final class CutoutMaskStore {
             }
         }
 
-        let key = Self.key(for: reference, in: memoID, radius: radius) as NSString
+        let key = Self.key(for: reference, in: memoID, radius: radius)
 
-        if let cached = dilatedCache.object(forKey: key) {
+        if let cached = dilatedCache.object(forKey: key as NSString) {
             return cached.image.map { CutoutDrawingMask(image: $0, extent: cached.mask.extent) }
         }
 
-        guard let dilated = filters.dilated(mask, radiusX: radius.x, radiusY: radius.y) else {
-            return nil
+        prepareDilated(mask, radius: radius, key: key)
+
+        return nil
+    }
+
+    /// 膨らませた形を裏で用意する。**できた時点で描き直させます。**
+    private func prepareDilated(_ mask: CutoutMask, radius: (x: Int, y: Int), key: String) {
+        guard !preparing.contains(key) else {
+            return
         }
 
-        let entry = CachedMask(mask: dilated, image: codec.grayscaleImage(from: dilated))
-        dilatedCache.setObject(entry, forKey: key, cost: dilated.coverage.count * 2)
+        preparing.insert(key)
 
-        return entry.image.map { CutoutDrawingMask(image: $0, extent: dilated.extent) }
+        let filters = self.filters
+        let codec = self.codec
+
+        Task { [weak self] in
+            let prepared = await Task.detached(priority: .userInitiated) { () -> CachedMask? in
+                guard let dilated = filters.dilated(mask, radiusX: radius.x, radiusY: radius.y) else {
+                    return nil
+                }
+
+                return CachedMask(mask: dilated, image: codec.grayscaleImage(from: dilated))
+            }.value
+
+            guard let self else {
+                return
+            }
+
+            preparing.remove(key)
+
+            guard let prepared else {
+                return
+            }
+
+            dilatedCache.setObject(prepared, forKey: key as NSString, cost: prepared.mask.coverage.count * 2)
+            objectWillChange.send()
+        }
     }
 
     func removeAll() {
@@ -81,35 +142,69 @@ final class CutoutMaskStore {
         dilatedCache.removeAllObjects()
     }
 
+    /// 復号済みなら返します。**無ければ裏で用意して `nil`** を返します。
     private func cached(for reference: CutoutMaskReference, in memoID: Memo.ID) -> CachedMask? {
         let key = Self.key(for: reference, in: memoID)
 
-        if let cached = cache.object(forKey: key) {
+        if let cached = cache.object(forKey: key as NSString) {
             return cached
         }
 
-        guard let data = repository.data(for: reference.assetID, in: memoID),
-              let mask = codec.decode(data, extent: reference.extent) else {
-            return nil
+        prepareDecoded(for: reference, in: memoID, key: key)
+
+        return nil
+    }
+
+    private func prepareDecoded(for reference: CutoutMaskReference, in memoID: Memo.ID, key: String) {
+        guard !preparing.contains(key), let data = repository.data(for: reference.assetID, in: memoID) else {
+            return
         }
 
+        preparing.insert(key)
+
+        let codec = self.codec
+        let extent = reference.extent
+
+        Task { [weak self] in
+            let decoded = await Task.detached(priority: .userInitiated) {
+                codec.decode(data, extent: extent)
+            }.value
+
+            guard let self else {
+                return
+            }
+
+            preparing.remove(key)
+
+            guard let decoded else {
+                return
+            }
+
+            store(decoded, for: reference, in: memoID)
+            objectWillChange.send()
+        }
+    }
+
+    private func store(_ mask: CutoutMask, for reference: CutoutMaskReference, in memoID: Memo.ID) {
         let entry = CachedMask(mask: mask, image: codec.grayscaleImage(from: mask))
         // 被覆率の配列と、画像が持つ複製の 2 つぶんを数えます。
-        cache.setObject(entry, forKey: key, cost: mask.coverage.count * 2)
-
-        return entry
+        cache.setObject(
+            entry,
+            forKey: Self.key(for: reference, in: memoID) as NSString,
+            cost: mask.coverage.count * 2
+        )
     }
 
     /// **`extent` とメモまで含めた鍵にします。**
     /// 同じ画像を別の範囲で参照したときに、先に読んだほうが返り続けるためです。
     /// アセットはメモに属するので、メモが違えば別物として扱います。
-    private static func key(for reference: CutoutMaskReference, in memoID: Memo.ID) -> NSString {
+    private static func key(for reference: CutoutMaskReference, in memoID: Memo.ID) -> String {
         let extent = reference.extent
 
         return """
         \(memoID.uuidString)/\(reference.assetID.uuidString)/\
         \(extent.minX),\(extent.minY),\(extent.width),\(extent.height)
-        """ as NSString
+        """
     }
 
     /// 膨らませた結果の鍵。半径まで含めないと、余白を変えても古い形が返ります。
@@ -122,9 +217,13 @@ final class CutoutMaskStore {
     }
 }
 
-private final class CachedMask {
+/// **`nonisolated` にします。** 裏で用意する経路から作るため、
+/// メインアクターに縛られていると `Task.detached` の中で作れません。
+/// `CGImage` は不変で、複数のスレッドから読むだけなら安全です。
+private nonisolated final class CachedMask: @unchecked Sendable {
     let mask: CutoutMask
     let image: CGImage?
+
 
     init(mask: CutoutMask, image: CGImage?) {
         self.mask = mask

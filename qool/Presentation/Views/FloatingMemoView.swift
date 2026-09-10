@@ -5,7 +5,7 @@ struct FloatingMemoView: View {
     let memo: Memo
     let outline: FloatingMemoOutline
     let imageStore: CanvasImageStore
-    let maskStore: CutoutMaskStore
+    @ObservedObject var maskStore: CutoutMaskStore
     let onEdit: () -> Void
     let onRemove: () -> Void
 

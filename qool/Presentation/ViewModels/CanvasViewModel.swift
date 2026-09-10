@@ -32,7 +32,7 @@ final class CanvasViewModel: ObservableObject {
     private let reorderElementsUseCase: ReorderCanvasElementsUseCase
     private let resizeElementUseCase = ResizeCanvasElementUseCase()
     private let imageStore: CanvasImageStore
-    private let maskStore: CutoutMaskStore
+    let maskStore: CutoutMaskStore
     private let maskRasterizer = CutoutMaskRasterizer()
     private let maskCodec = CutoutMaskPNGCodec()
     private let maskFilters = CutoutMaskFilters()
@@ -86,8 +86,15 @@ final class CanvasViewModel: ObservableObject {
     }
 
     /// 要素が持つマスク。切り抜きシートが編集の土台にします。
-    func cutoutMask(for element: CanvasElement) -> CutoutMask? {
-        element.cutoutMask.flatMap { maskStore.mask(for: $0, in: memo.id) }
+    ///
+    /// **復号を待ちます。** 無いと編集を始められないので、
+    /// 描画のように「無ければあとで」では済みません。
+    func cutoutMask(for element: CanvasElement) async -> CutoutMask? {
+        guard let reference = element.cutoutMask else {
+            return nil
+        }
+
+        return await maskStore.loadedMask(for: reference, in: memo.id)
     }
 
     /// 描画に使うマスク。余白のぶん膨らませた形です。持っていなければ `nil`。
@@ -134,16 +141,26 @@ final class CanvasViewModel: ObservableObject {
             return false
         }
 
+        // **途中で失敗したら丸ごと巻き戻します。** 切り詰めだけ済んでマスクが無い、
+        // という半端な状態を残すと、絵と切り抜きが食い違ったまま保存されます。
+        let restorePoint = memo.canvas.elements
+
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
             element.pathContours = resolved
             element.isClosedPath = true
         }
         // **切り詰めで枠が変わるので、マスクの覆う範囲も同じだけ取り直します。**
         // 掛けないと切り詰め前の座標のまま解釈され、絵が縮んで見えます。
-        let crop = cropSourceImage(of: elementID)
+        // **薄く覆っている部分まで含めて切り詰めます。** 輪郭はしきい値 128 を超えた
+        // 濃さしか表さないので、これが無いと髪やガラスの薄い部分の画像が捨てられます。
+        let crop = cropSourceImage(of: elementID, covering: mask?.trimmed(threshold: 0)?.extent)
         let adjusted = crop.flatMap { crop in mask.flatMap { cropGeometry.applied(crop, to: $0) } } ?? mask
 
-        storeCutoutMask(adjusted, of: elementID)
+        guard storeCutoutMask(adjusted, of: elementID) else {
+            memo.canvas.elements = restorePoint
+            return false
+        }
+
         save()
 
         return true
@@ -166,9 +183,10 @@ final class CanvasViewModel: ObservableObject {
     /// **抽出器がマスクを返していればそれを使います。** 輪郭から焼き直すと、
     /// 縁の半透明が 2 値に潰れて、マスクにした意味がなくなります。
     /// 手直しした場合など、マスクが無いときだけ輪郭から焼きます。
-    private func storeCutoutMask(_ extracted: CutoutMask?, of elementID: CanvasElement.ID) {
+    /// - Returns: 保存できたか。**書けなければ `false`** を返し、呼び出し側が巻き戻します。
+    private func storeCutoutMask(_ extracted: CutoutMask?, of elementID: CanvasElement.ID) -> Bool {
         guard let element = memo.canvas.elements.first(where: { $0.id == elementID }) else {
-            return
+            return false
         }
 
         let size = maskPixelSize(for: element)
@@ -178,12 +196,14 @@ final class CanvasViewModel: ObservableObject {
               let data = maskCodec.encode(mask),
               let assetID = try? importImageUseCase(data, in: memo.id),
               let reference = CutoutMaskReference(assetID: assetID, extent: mask.extent) else {
-            return
+            return false
         }
 
         updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
             element.cutoutMask = reference
         }
+
+        return true
     }
 
     /// 輪郭から起こしたマスク。**抽出器のマスクが無いときの受け皿**です。
@@ -234,7 +254,10 @@ final class CanvasViewModel: ObservableObject {
     /// **見た目は変わりません。** 画像が小さくなるぶん枠も縮め、輪郭を取り直します。
     /// 置き換えられなくても静かに諦めます。原寸のままでも表示は正しいためです。
     @discardableResult
-    private func cropSourceImage(of elementID: CanvasElement.ID) -> CutoutCrop? {
+    private func cropSourceImage(
+        of elementID: CanvasElement.ID,
+        covering additionalBounds: CGRect? = nil
+    ) -> CutoutCrop? {
         guard let element = memo.canvas.elements.first(where: { $0.id == elementID }),
               let sourceImage = image(for: element)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return nil
@@ -245,7 +268,8 @@ final class CanvasViewModel: ObservableObject {
         guard let crop = cropGeometry.crop(
                   for: element.pathContours,
                   imagePixelSize: pixelSize,
-                  displaySize: element.frame.size
+                  displaySize: element.frame.size,
+                  covering: additionalBounds
               ),
               let cropped = sourceImage.cropping(to: crop.pixelRect),
               let data = CanvasImageStore.pngData(from: cropped),
