@@ -48,11 +48,11 @@ struct RegionMaskExtractorTests {
     }
 
     /// **囲まれた領域だけが選ばれることの確認。** これがブラシとの違いです。
-    @Test func 囲まれた内側を押すとその範囲だけ広がる() throws {
+    @Test func 囲まれた内側を押すとその範囲だけ広がる() async throws {
         let image = try #require(imageWithEnclosedHole())
 
         let mask = try #require(
-            extractor.regionMask(in: image, at: CGPoint(x: 0.5, y: 0.5), tolerance: 24)
+            await extractor.regionMask(in: image, at: CGPoint(x: 0.5, y: 0.5), tolerance: 24)
         )
 
         // 内側の白（画像の 9%）だけが選ばれ、外側の白へは漏れません。
@@ -65,11 +65,11 @@ struct RegionMaskExtractorTests {
         #expect(mask.value(at: CGPoint(x: 0.05, y: 0.05)) == 0)
     }
 
-    @Test func 外側を押すと外側だけが広がる() throws {
+    @Test func 外側を押すと外側だけが広がる() async throws {
         let image = try #require(imageWithEnclosedHole())
 
         let mask = try #require(
-            extractor.regionMask(in: image, at: CGPoint(x: 0.05, y: 0.05), tolerance: 24)
+            await extractor.regionMask(in: image, at: CGPoint(x: 0.05, y: 0.05), tolerance: 24)
         )
 
         #expect(mask.value(at: CGPoint(x: 0.05, y: 0.05)) == 255)
@@ -78,23 +78,23 @@ struct RegionMaskExtractorTests {
     }
 
     /// 許容差を上げると、黒い枠を越えて広がります。
-    @Test func 許容差を上げると広がる範囲が増える() throws {
+    @Test func 許容差を上げると広がる範囲が増える() async throws {
         let image = try #require(imageWithEnclosedHole())
 
         let narrow = try #require(
-            extractor.regionMask(in: image, at: CGPoint(x: 0.5, y: 0.5), tolerance: 8)
+            await extractor.regionMask(in: image, at: CGPoint(x: 0.5, y: 0.5), tolerance: 8)
         )
         let wide = try #require(
-            extractor.regionMask(in: image, at: CGPoint(x: 0.5, y: 0.5), tolerance: 255)
+            await extractor.regionMask(in: image, at: CGPoint(x: 0.5, y: 0.5), tolerance: 255)
         )
 
         #expect(filledCount(wide) > filledCount(narrow))
     }
 
-    @Test func 画像の外を押しても広げない() throws {
+    @Test func 画像の外を押しても広げない() async throws {
         let image = try #require(imageWithEnclosedHole())
 
-        #expect(extractor.regionMask(in: image, at: CGPoint(x: 1.5, y: 0.5), tolerance: 24) == nil)
-        #expect(extractor.regionMask(in: image, at: CGPoint(x: -0.1, y: 0.5), tolerance: 24) == nil)
+        #expect(await extractor.regionMask(in: image, at: CGPoint(x: 1.5, y: 0.5), tolerance: 24) == nil)
+        #expect(await extractor.regionMask(in: image, at: CGPoint(x: -0.1, y: 0.5), tolerance: 24) == nil)
     }
 }

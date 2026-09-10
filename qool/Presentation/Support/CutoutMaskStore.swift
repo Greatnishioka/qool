@@ -47,7 +47,11 @@ final class CutoutMaskStore: ObservableObject {
     /// 復号を待って取り出す。切り抜きシートを開くときのように、
     /// **無いと始められない場面**で使います。
     func loadedMask(for reference: CutoutMaskReference, in memoID: Memo.ID) async -> CutoutMask? {
-        if let cached = cached(for: reference, in: memoID) {
+        let key = Self.key(for: reference, in: memoID)
+
+        // **`cached(for:)` は使いません。** あちらは無いときに裏の用意を始めるので、
+        // ここから呼ぶと同じ復号が二重に走ります。
+        if let cached = cache.object(forKey: key as NSString) {
             return cached.mask
         }
 

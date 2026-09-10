@@ -10,5 +10,8 @@ nonisolated protocol RegionMaskExtractorProtocol: Sendable {
     ///   - point: 押した場所。正規化座標（`0...1`）で、左上原点です。
     ///   - tolerance: 色の違いをどこまで同じ領域とみなすか（`0...255`）。
     /// - Returns: 画像の枠を単位空間としたマスク。広がらなければ `nil`。
-    func regionMask(in image: CGImage, at point: CGPoint, tolerance: Int) -> CutoutMask?
+    ///
+    /// **非同期です。** 原寸の画像を読み込んでから縮めるので、
+    /// クリックの処理から同期で呼ぶとメインスレッドが塞がります。
+    func regionMask(in image: CGImage, at point: CGPoint, tolerance: Int) async -> CutoutMask?
 }

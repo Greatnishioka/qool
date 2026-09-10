@@ -77,12 +77,12 @@ final class CanvasViewModel: ObservableObject {
     }
 
     /// 押した場所から色の近い範囲を広げたマスク。切り抜きシートの領域選択が使います。
-    func regionMask(in image: NSImage, at point: CGPoint, tolerance: Int) -> CutoutMask? {
+    func regionMask(in image: NSImage, at point: CGPoint, tolerance: Int) async -> CutoutMask? {
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return nil
         }
 
-        return regionMaskExtractor.regionMask(in: cgImage, at: point, tolerance: tolerance)
+        return await regionMaskExtractor.regionMask(in: cgImage, at: point, tolerance: tolerance)
     }
 
     /// 要素が持つマスク。切り抜きシートが編集の土台にします。

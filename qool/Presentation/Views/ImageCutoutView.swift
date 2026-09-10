@@ -45,7 +45,7 @@ struct ImageCutoutView: View {
     let existingMask: CutoutMask?
     let makeCandidates: (NSImage, [CGPoint]) async -> [CutoutCandidate]
     /// 押した場所から色の近い範囲を広げる。領域選択の道具が使います。
-    let makeRegionMask: (NSImage, CGPoint, Int) -> CutoutMask?
+    let makeRegionMask: (NSImage, CGPoint, Int) async -> CutoutMask?
     /// 適用できたかを返します。**失敗したらシートを閉じません。**
     let onApply: ([CanvasPathContour], CutoutMask?) -> Bool
     let onClear: () -> Void
@@ -94,6 +94,7 @@ struct ImageCutoutView: View {
     private let maskFilters = CutoutMaskFilters()
     private let maskRasterizer = CutoutMaskRasterizer()
     private let maskCodec = CutoutMaskPNGCodec()
+    private let baseSelector = CutoutEditingBase()
 
     private var selectedCandidate: CutoutCandidate? {
         if let selectedCandidateID, let picked = candidates.first(where: { $0.id == selectedCandidateID }) {
@@ -558,20 +559,25 @@ struct ImageCutoutView: View {
             y: (location.y - rect.minY) / rect.height
         )
 
-        guard (0..<1).contains(point.x), (0..<1).contains(point.y),
-              let region = makeRegionMask(image, point, Int(tolerance)),
-              let placed = maskFilters.placedInUnitSpace(
-                  region,
-                  width: base.current.width,
-                  height: base.current.height
-              ) else {
+        guard (0..<1).contains(point.x), (0..<1).contains(point.y) else {
             return
         }
 
-        var editing = base
-        editing.record(editMask(editing.current, combining: placed, mode: mode))
-        history = editing
-        refreshPreviewImage()
+        Task {
+            guard let region = await makeRegionMask(image, point, Int(tolerance)),
+                  let placed = maskFilters.placedInUnitSpace(
+                      region,
+                      width: base.current.width,
+                      height: base.current.height
+                  ) else {
+                return
+            }
+
+            var editing = base
+            editing.record(editMask(editing.current, combining: placed, mode: mode))
+            history = editing
+            refreshPreviewImage()
+        }
     }
 
     /// 手直しの土台。**始めた時点のマスクを単位空間へ載せ直してから積みます。**
@@ -591,9 +597,11 @@ struct ImageCutoutView: View {
     /// 土台を作り直す。なぞり直し・候補の選び直し・シートを開いた直後に呼びます。
     private func rebuildBaseMask() {
         let size = editingMaskSize()
-        // **なぞり直したら既存のマスクは使いません。** 候補がマスクを持たない
-        // （矩形補正・手描き）ときに既存へ落ちると、新しい輪郭が捨てられます。
-        let extracted = tracePoints.isEmpty ? existingMask : selectedCandidate?.mask
+        let extracted = baseSelector.mask(
+            existing: existingMask,
+            candidate: selectedCandidate?.mask,
+            hasRetraced: !tracePoints.isEmpty
+        )
         let source = extracted
             ?? maskRasterizer.mask(
                 from: previewContours,

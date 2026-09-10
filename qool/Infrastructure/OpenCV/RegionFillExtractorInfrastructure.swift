@@ -13,7 +13,15 @@ nonisolated struct RegionFillExtractorInfrastructure: RegionMaskExtractorProtoco
 
     init() {}
 
-    func regionMask(in image: CGImage, at point: CGPoint, tolerance: Int) -> CutoutMask? {
+    func regionMask(in image: CGImage, at point: CGPoint, tolerance: Int) async -> CutoutMask? {
+        await Task.detached(priority: .userInitiated) {
+            Self.fill(in: image, at: point, tolerance: tolerance)
+        }.value
+    }
+
+    /// **メインアクターの外で走ります。** `Mat` への変換も `floodFill` も
+    /// 画素をなめるので、クリックの処理から同期で呼ぶと固まります。
+    private static func fill(in image: CGImage, at point: CGPoint, tolerance: Int) -> CutoutMask? {
         let source = Mat(cgImage: image)
 
         guard source.rows() > 0, source.cols() > 0,
@@ -21,7 +29,7 @@ nonisolated struct RegionFillExtractorInfrastructure: RegionMaskExtractorProtoco
             return nil
         }
 
-        let working = resized(source)
+        let working = Self.resized(source)
         let rgb = Mat()
         Imgproc.cvtColor(src: working, dst: rgb, code: .COLOR_RGBA2RGB)
 
@@ -57,10 +65,10 @@ nonisolated struct RegionFillExtractorInfrastructure: RegionMaskExtractorProtoco
             flags: flags
         )
 
-        return cutoutMask(from: fillMask, width: Int(width), height: Int(height))
+        return Self.cutoutMask(from: fillMask, width: Int(width), height: Int(height))
     }
 
-    private func resized(_ source: Mat) -> Mat {
+    private static func resized(_ source: Mat) -> Mat {
         let longSide = max(source.cols(), source.rows())
 
         guard longSide > Self.workingLongSide else {
@@ -85,7 +93,7 @@ nonisolated struct RegionFillExtractorInfrastructure: RegionMaskExtractorProtoco
     }
 
     /// 外周 1 画素の縁を落として被覆率にする。
-    private func cutoutMask(from fillMask: Mat, width: Int, height: Int) -> CutoutMask? {
+    private static func cutoutMask(from fillMask: Mat, width: Int, height: Int) -> CutoutMask? {
         guard width > 0, height > 0 else {
             return nil
         }
