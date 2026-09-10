@@ -37,12 +37,6 @@ nonisolated struct CanvasDraftElementBuilder {
                 showsStroke: false,
                 text: "テキスト"
             )
-        case .image:
-            return CanvasElement(
-                kind: .imageCutout,
-                frame: normalizedFrame(from: start, to: current, minimumSize: CGSize(width: 1, height: 1)),
-                fillColor: .coral
-            )
         }
     }
 

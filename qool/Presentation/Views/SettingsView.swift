@@ -8,7 +8,7 @@ struct SettingsView: View {
     static let windowID = "settings"
 
     private static let historyLimitRange =
-        Double(ContourEditHistory.limitRange.lowerBound)...Double(ContourEditHistory.limitRange.upperBound)
+        Double(CutoutMaskEditHistory.limitRange.lowerBound)...Double(CutoutMaskEditHistory.limitRange.upperBound)
 
     @ObservedObject var hotKeys: HotKeyCoordinator
     let settings: any AppSettingsProtocol
@@ -77,7 +77,7 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 
-                Text("手数が上限に届く前でも、履歴の合計が \(ContourEditHistory.maximumTotalBytes / 1024 / 1024)MB を超えると古いほうから捨てます。")
+                Text("手数が上限に届く前でも、履歴の合計が \(CutoutMaskEditHistory.maximumTotalBytes / 1024 / 1024)MB を超えると古いほうから捨てます。")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }

@@ -39,10 +39,6 @@ struct CanvasElementView: View {
                 MultiContourPathShape(contours: element.pathContours)
                     .fill(element.fillColor.swiftUIColor.opacity(0.75), style: FillStyle(eoFill: true))
                     .overlay(strokeOverlay(MultiContourPathShape(contours: element.pathContours)))
-            } else if element.pathPoints.isEmpty {
-                LegacyPathShape()
-                    .fill(element.fillColor.swiftUIColor.opacity(0.75))
-                    .overlay(strokeOverlay(LegacyPathShape()))
             } else {
                 BezierPathShape(points: element.pathPoints, isClosed: element.isClosedPath)
                     .fill(element.fillColor.swiftUIColor.opacity(element.isClosedPath ? 0.75 : 0.18))
@@ -196,26 +192,6 @@ private struct SelectionOutline: View {
             .frame(width: 8, height: 8)
             .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1.5))
             .offset(x: 0, y: 0)
-    }
-}
-
-private struct LegacyPathShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX + rect.width * 0.14, y: rect.midY))
-        path.addCurve(
-            to: CGPoint(x: rect.maxX - rect.width * 0.12, y: rect.midY),
-            control1: CGPoint(x: rect.minX + rect.width * 0.24, y: rect.minY + rect.height * 0.06),
-            control2: CGPoint(x: rect.minX + rect.width * 0.76, y: rect.maxY - rect.height * 0.04)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX - rect.width * 0.24, y: rect.maxY - rect.height * 0.12))
-        path.addCurve(
-            to: CGPoint(x: rect.minX + rect.width * 0.18, y: rect.maxY - rect.height * 0.22),
-            control1: CGPoint(x: rect.midX, y: rect.maxY - rect.height * 0.02),
-            control2: CGPoint(x: rect.minX + rect.width * 0.24, y: rect.maxY - rect.height * 0.58)
-        )
-        path.closeSubpath()
-        return path
     }
 }
 

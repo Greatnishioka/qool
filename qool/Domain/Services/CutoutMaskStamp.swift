@@ -3,8 +3,8 @@ import CoreGraphics
 /// なぞりをマスクへ描く。
 ///
 /// **多角形を作らずに直接塗ります。** 移植元は太さのある線を多角形へ変換してから
-/// ブーリアン演算にかけていましたが（[BrushStrokeOutline](BrushStrokeOutline.swift)）、
-/// マスクなら線をそのまま塗れます。**縁に柔らかさを持たせられるのはこちらだけ**です。
+/// ブーリアン演算にかけていました。マスクなら線をそのまま塗れます。
+/// **縁に柔らかさを持たせられるのはこちらだけ**です。
 nonisolated struct CutoutMaskStamp {
     private let filters = CutoutMaskFilters()
 

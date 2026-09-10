@@ -52,8 +52,6 @@ struct CanvasToolDock: View {
             "line.diagonal"
         case .text:
             "textformat"
-        case .image:
-            "photo"
         }
     }
 }

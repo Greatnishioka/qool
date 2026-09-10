@@ -21,44 +21,59 @@ View  →  ViewModel  →  UseCase  →  Domain
 qool/
   App/              QoolApp（@main） / AppDelegate（合成ルート）
   Presentation/
-    Enums/          MemoPersistenceStatus / CanvasDragTarget
-    Views/          メモパネル / キャンバス / 画像切り抜き / 画像調整（後者 3 つは未実装）
+    Enums/          MemoPersistenceStatus / CanvasDragTarget / CutoutSheetTool
+    Views/          メモパネル / キャンバス / 画像切り抜き / フローティングメモ / 設定
+                    Components/  要素・キャンバス面・プロパティ・ツールドックなど
     ViewModels/     AppRootViewModel / CanvasViewModel
     Support/        CanvasColor+SwiftUI / RGBAComponents+SwiftUI
+                    / CanvasImageStore / CutoutMaskStore / CutoutDrawingMask
+                    / CutoutEditingBase / FloatingMemoPresenter / HotKeyCoordinator
   Application/
     UseCases/
-      Memo/         Load / Create / Save / FlushMemos / ObserveWriteStates
-      Canvas/       Move / Delete / Update / UpdateElements / UnionCanvasElements
-                    + 輪郭候補の抽出 / マスク編集 / 切り抜き画像の書き出し（追加予定）
+      Memo/         Load / Create / Save / Delete / FlushMemos / ObserveWriteStates
+                    / UpdateFloatingOrigin
+      Canvas/       Move / Delete / Update / UpdateElements / Reorder / Resize
+                    / UnionCanvasElements / BuildFloatingMemoOutline
+      Image/        BuildCutoutCandidates / BuildCutoutContour / EditCutoutMask
+                    / ImportImage / PruneImageAssets
   Domain/
-    Enums/          CanvasElementKind / CanvasTool / CanvasColor / MemoWriteState
-                    / ImageBlurDirection
+    Enums/          CanvasElementKind / CanvasTool / CanvasColor / CanvasElementOrder
+                    / CanvasResizeCorner / CanvasStrokeAlignment / ContourCandidateSource
+                    / ContourEditMode / ImageBlurDirection / MemoWriteState
+                    / HotKeyAction / VirtualKey
     Models/         Memo / Canvas / CanvasElement / CanvasElementSnapshot
                     / CanvasPathContour / NormalizedPoint / RGBAComponents
-                    / ImageCutoutDraft / ImageAdjustment
-                    + ContourCandidate / RasterContourMask / RasterSelectionMask（追加予定）
+                    / ImageCutoutDraft / ImageAdjustment / FloatingMemoOutline
+                    / ContourCandidate / CutoutCandidate / CutoutCrop
+                    / CutoutImageSource / CutoutMask / CutoutMaskReference
+                    / CutoutMaskEditHistory / HotKey 一式
     Coding/         各モデルの手書き Codable 実装
     Repositories/   MemoRepositoryProtocol / MemoWriteMonitoringProtocol
-                    / ImageAssetRepositoryProtocol
-    Services/       CanvasElementFactory / CanvasSelectionService / CanvasDraftElementBuilder
-                    / ContourSmoother / ContourPadding / RectangularGuideContour
-                    + ContourCandidateSelector / ContourQualityValidator
-                      / CurvePathBuilder（追加予定）
-    Support/        CGRect+UnitSpace（正規化座標のヘルパー）
+                    / ImageAssetRepositoryProtocol / AppSettingsProtocol
+                    / CutoutMaskExtractorProtocol / MaskContourDeriverProtocol
+                    / RegionMaskExtractorProtocol / GlobalHotKeyProtocol
+    Services/       CanvasSelectionService / CanvasDraftElementBuilder
+                    / CanvasElementPolygons / ContourGeometry / ContourHitTest
+                    / ContourSmoother / ContourPadding / ContourCandidateSelector
+                    / RectangularGuideContour / CutoutCropGeometry
+                    / CutoutMaskFilters / CutoutMaskRasterizer / CutoutMaskStamp
+    Support/        CGRect+UnitSpace / CGRect+UnitExtent（正規化座標のヘルパー）
   Infrastructure/
-    Enums/          MemoWriteFailure
+    Enums/          MemoWriteFailure / HotKeyRegistrationFailure
     Persistence/    MemoStorageLayout（ディスク上の配置）
                     / FileMemoRepositoryInfrastructure / InMemoryMemoRepositoryInfrastructure
                     / DebouncedMemoRepositoryInfrastructure
                     / FileImageAssetRepositoryInfrastructure
-    Vision/         SubjectMaskExtractor / PreprocessedContourExtractor / ContourDetector（追加予定）
-    CoreImage/      GuidedBackgroundContourExtractor / LineColorContourExtractor
-                    / ColoredPaperRectangleExtractor / CutoutImageRenderer（追加予定）
-    AppKit/         フローティングメモウィンドウ / グローバルホットキー（追加予定）
+                    / UserDefaultsAppSettingsInfrastructure / CutoutMaskPNGCodec
+    Vision/         SubjectMaskExtractorInfrastructure
+    OpenCV/         GrabCutContourExtractorInfrastructure / MaskContourDeriverInfrastructure
+                    / RegionFillExtractorInfrastructure
+    AppKit/         フローティングメモウィンドウ / グローバルホットキー
+                    / スクロールとスペースキーの入力
 ```
 
-追加予定のものは StarWindow 側で同じレイヤ分割がすでに済んでいるため、
-**配置先を考え直す必要はなく、そのまま対応する場所へ移せます**（[取り込み計画](../image-editing/04-integration-plan.md#41-レイヤ配置)）。
+**画像編集は StarWindow から移植しました。** 向こうも同じレイヤ分割だったため、
+配置先を考え直す必要はありませんでした（[取り込み計画](../image-editing/04-integration-plan.md#41-レイヤ配置)）。
 
 ## レイヤごとの責務
 
@@ -93,8 +108,9 @@ qool/
 
 ### ViewModel が Domain サービスを直接呼んでいる
 
-`CanvasViewModel` は `CanvasElementFactory` / `CanvasSelectionService` / `CanvasDraftElementBuilder` を
-UseCase を経由せず直接使っています。図形の選択・描画といった純粋な操作なので実害は小さいものの、
+`CanvasViewModel` は `CanvasSelectionService` / `CanvasDraftElementBuilder` /
+`CutoutCropGeometry` などを UseCase を経由せず直接使っています。
+図形の選択・描画といった純粋な操作なので実害は小さいものの、
 `View → ViewModel → UseCase → Domain` の原則からは外れています。
 
 ### ~~`any` の表記ゆれ~~（解消）
@@ -102,20 +118,8 @@ UseCase を経由せず直接使っています。図形の選択・描画とい
 `SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY` を有効にしたため、
 存在型に `any` を付け忘れるとコンパイラが指摘します。
 
-### StarWindow 側の import
+## ~~プラットフォーム~~（解消）
 
-移植元の全ファイルが機械的に `import AppKit / CoreImage / SwiftUI / UniformTypeIdentifiers / Vision` を
-書いています。**Domain 相当のファイルも例外ではない**ため、移植時に不要な import の除去が必要です
-（中身は `CGPoint` / `CGRect` しか使っていないので、除去するだけで済みます）。
-
-## プラットフォーム
-
-qool は現在 iOS / iPadOS ターゲットですが、[MVP](../product/mvp.md) は Mac 上で動くことを前提としており、
-**macOS アプリとして作り直す方針**です。
-
-UIKit に依存しているのは以下の 2 ファイルのみで、影響範囲は限定的です。
-
-- [`CanvasSurface.swift`](../../qool/Presentation/Views/Components/CanvasSurface.swift) — `UIPress` / `GameController` による Shift キー検出
-- [`CanvasPropertiesPanel.swift`](../../qool/Presentation/Views/Components/CanvasPropertiesPanel.swift) — `UIColor` による色成分の取得
-
-いずれも Presentation 層にあり、Domain / Application は UIKit に依存していません。
+iOS / iPadOS ターゲットで、`CanvasSurface` が `UIPress` / `GameController` を、
+`CanvasPropertiesPanel` が `UIColor` を使っていた状態は **macOS 専用へ作り直して解消しました。**
+UIKit への依存はありません。

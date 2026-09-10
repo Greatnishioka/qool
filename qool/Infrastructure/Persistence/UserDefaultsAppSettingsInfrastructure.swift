@@ -42,12 +42,12 @@ final class UserDefaultsAppSettingsInfrastructure: AppSettingsProtocol {
     var editHistoryLimit: Int {
         get {
             guard defaults.object(forKey: StorageKey.editHistoryLimit) != nil else {
-                return ContourEditHistory.defaultLimit
+                return CutoutMaskEditHistory.defaultLimit
             }
 
             return min(
-                max(defaults.integer(forKey: StorageKey.editHistoryLimit), ContourEditHistory.limitRange.lowerBound),
-                ContourEditHistory.limitRange.upperBound
+                max(defaults.integer(forKey: StorageKey.editHistoryLimit), CutoutMaskEditHistory.limitRange.lowerBound),
+                CutoutMaskEditHistory.limitRange.upperBound
             )
         }
         set { defaults.set(newValue, forKey: StorageKey.editHistoryLimit) }

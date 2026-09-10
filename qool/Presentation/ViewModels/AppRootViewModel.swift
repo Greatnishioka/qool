@@ -9,8 +9,6 @@ final class AppRootViewModel: ObservableObject {
 
     @Published private(set) var memos: [Memo] = []
     @Published var selectedMemo: Memo?
-    @Published var cutoutDraft = ImageCutoutDraft()
-    @Published var imageAdjustment = ImageAdjustment.default
 
     /// 保存の状態。失敗しているときだけ画面に出します。
     @Published private(set) var persistenceStatus: MemoPersistenceStatus = .ok
@@ -38,7 +36,6 @@ final class AppRootViewModel: ObservableObject {
     private let pruneImageAssetsUseCase: PruneImageAssetsUseCase
     private let flushMemosUseCase: FlushMemosUseCase
     private let observeWriteStatesUseCase: ObserveWriteStatesUseCase
-    private let elementFactory: CanvasElementFactory
     private var writeStateTask: Task<Void, Never>?
 
     init(
@@ -53,8 +50,7 @@ final class AppRootViewModel: ObservableObject {
         imageStore: CanvasImageStore,
         maskStore: CutoutMaskStore,
         importImageUseCase: ImportImageUseCase,
-        pruneImageAssetsUseCase: PruneImageAssetsUseCase,
-        elementFactory: CanvasElementFactory
+        pruneImageAssetsUseCase: PruneImageAssetsUseCase
     ) {
         self.loadMemosUseCase = loadMemosUseCase
         self.createMemoUseCase = createMemoUseCase
@@ -68,7 +64,6 @@ final class AppRootViewModel: ObservableObject {
         self.pruneImageAssetsUseCase = pruneImageAssetsUseCase
         self.flushMemosUseCase = flushMemosUseCase
         self.observeWriteStatesUseCase = observeWriteStatesUseCase
-        self.elementFactory = elementFactory
         reload()
         observeWriteStates()
     }
@@ -125,8 +120,7 @@ final class AppRootViewModel: ObservableObject {
             imageStore: CanvasImageStore(repository: imageRepository),
             maskStore: CutoutMaskStore(repository: imageRepository),
             importImageUseCase: ImportImageUseCase(repository: imageRepository),
-            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: imageRepository),
-            elementFactory: CanvasElementFactory()
+            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: imageRepository)
         )
     }
 
@@ -183,15 +177,6 @@ final class AppRootViewModel: ObservableObject {
         } catch {
             // 消せなかったので一覧はそのまま。状態表示が失敗を伝えます。
         }
-    }
-
-    func addElement(using tool: CanvasTool) async {
-        guard var memo = selectedMemo, let element = elementFactory.makeElement(for: tool) else {
-            return
-        }
-
-        memo.canvas.elements.append(element)
-        await saveMemo(memo)
     }
 
     func saveMemo(_ memo: Memo) async {
@@ -252,16 +237,6 @@ final class AppRootViewModel: ObservableObject {
     /// 開き終えたら View 側が呼びます。**同じメモを続けて開けるように毎回戻します。**
     func clearCanvasRequest() {
         canvasRequest = nil
-    }
-
-    func updateAdjustment(_ adjustment: ImageAdjustment) {
-        imageAdjustment = adjustment
-    }
-
-    func commitImageMemo() async {
-        await addElement(using: .image)
-        cutoutDraft = ImageCutoutDraft()
-        imageAdjustment = .default
     }
 
     /// 保留している書き込みを確定する。**アプリ終了時に必ず呼んでください。**

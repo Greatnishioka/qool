@@ -6,8 +6,11 @@ import CoreGraphics
 /// 500 手で数 GB になります。1 手の大きさがなぞった範囲に収まるので、
 /// 上限を大きくしても現実的です（[設計](https://github.com/Greatnishioka/qool/issues/12)）。
 nonisolated struct CutoutMaskEditHistory {
+    /// 既定の手数。
+    static let defaultLimit = 100
+
     /// 戻せる手数の範囲。設定で変えられます。
-    static let limitRange = ContourEditHistory.limitRange
+    static let limitRange = 1...500
 
     /// 抱えてよい差分の総量。**手数だけでは足りません。**
     /// 全面を塗り替える 1 手は 1024×1024 で 2MB あり、手数の上限まで積むと 1GB になります。

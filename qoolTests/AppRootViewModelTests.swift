@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Synchronization
 import Testing
@@ -159,26 +160,22 @@ struct AppRootViewModelTests {
         #expect(viewModel.memos.map(\.title) == ["古い", "新しい"])
     }
 
-    @Test func 要素の追加が保存され一覧に反映される() async throws {
+    /// **一覧はディスクを読み直しません。** 保存の戻り値をメモリ上の一覧へ反映します。
+    /// 読み直すと、メモが増えるほど 1 回の編集が重くなります。
+    @Test func 編集した要素が保存され一覧に反映される() async throws {
         let repository = CountingMemoRepository()
         let viewModel = makeViewModel(repository: repository)
         _ = await viewModel.createMemo()
+        var memo = try #require(viewModel.selectedMemo)
 
-        await viewModel.addElement(using: .rectangle)
+        memo.canvas.elements.append(
+            CanvasElement(kind: .rectangle, frame: CGRect(x: 0, y: 0, width: 10, height: 10), fillColor: .paper)
+        )
+        await viewModel.saveMemo(memo)
 
         #expect(viewModel.selectedMemo?.canvas.elements.count == 1)
         #expect(viewModel.memos.first?.canvas.elements.count == 1)
         #expect(repository.loadCallCount == 1)
-    }
-
-    @Test func 選択中のメモがなければ要素を追加しない() async throws {
-        let repository = CountingMemoRepository()
-        let viewModel = makeViewModel(repository: repository)
-
-        await viewModel.addElement(using: .rectangle)
-
-        #expect(viewModel.memos.isEmpty)
-        #expect(repository.saveCallCount == 0)
     }
 
     // MARK: - 失敗の扱い
