@@ -38,7 +38,6 @@ final class AppRootViewModel: ObservableObject {
     private let pruneImageAssetsUseCase: PruneImageAssetsUseCase
     private let flushMemosUseCase: FlushMemosUseCase
     private let observeWriteStatesUseCase: ObserveWriteStatesUseCase
-    private let elementFactory: CanvasElementFactory
     private var writeStateTask: Task<Void, Never>?
 
     init(
@@ -53,8 +52,7 @@ final class AppRootViewModel: ObservableObject {
         imageStore: CanvasImageStore,
         maskStore: CutoutMaskStore,
         importImageUseCase: ImportImageUseCase,
-        pruneImageAssetsUseCase: PruneImageAssetsUseCase,
-        elementFactory: CanvasElementFactory
+        pruneImageAssetsUseCase: PruneImageAssetsUseCase
     ) {
         self.loadMemosUseCase = loadMemosUseCase
         self.createMemoUseCase = createMemoUseCase
@@ -68,7 +66,6 @@ final class AppRootViewModel: ObservableObject {
         self.pruneImageAssetsUseCase = pruneImageAssetsUseCase
         self.flushMemosUseCase = flushMemosUseCase
         self.observeWriteStatesUseCase = observeWriteStatesUseCase
-        self.elementFactory = elementFactory
         reload()
         observeWriteStates()
     }
@@ -125,8 +122,7 @@ final class AppRootViewModel: ObservableObject {
             imageStore: CanvasImageStore(repository: imageRepository),
             maskStore: CutoutMaskStore(repository: imageRepository),
             importImageUseCase: ImportImageUseCase(repository: imageRepository),
-            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: imageRepository),
-            elementFactory: CanvasElementFactory()
+            pruneImageAssetsUseCase: PruneImageAssetsUseCase(repository: imageRepository)
         )
     }
 
@@ -185,12 +181,23 @@ final class AppRootViewModel: ObservableObject {
         }
     }
 
-    func addElement(using tool: CanvasTool) async {
-        guard var memo = selectedMemo, let element = elementFactory.makeElement(for: tool) else {
+    /// 画像の枠を選択中のメモへ置く。
+    ///
+    /// **道具から要素を作る経路はここだけです。** キャンバス上で描く矩形や線は
+    /// ドラッグから [CanvasDraftElementBuilder](../../Domain/Services/CanvasDraftElementBuilder.swift)
+    /// が組み立てます。画像だけは描かずに置くので、こちらを通ります。
+    func addImageElement() async {
+        guard var memo = selectedMemo else {
             return
         }
 
-        memo.canvas.elements.append(element)
+        memo.canvas.elements.append(
+            CanvasElement(
+                kind: .imageCutout,
+                frame: CGRect(x: 60, y: 80, width: 200, height: 160),
+                fillColor: .coral
+            )
+        )
         await saveMemo(memo)
     }
 
@@ -259,7 +266,7 @@ final class AppRootViewModel: ObservableObject {
     }
 
     func commitImageMemo() async {
-        await addElement(using: .image)
+        await addImageElement()
         cutoutDraft = ImageCutoutDraft()
         imageAdjustment = .default
     }

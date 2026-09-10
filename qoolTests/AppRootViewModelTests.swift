@@ -164,7 +164,7 @@ struct AppRootViewModelTests {
         let viewModel = makeViewModel(repository: repository)
         _ = await viewModel.createMemo()
 
-        await viewModel.addElement(using: .rectangle)
+        await viewModel.addImageElement()
 
         #expect(viewModel.selectedMemo?.canvas.elements.count == 1)
         #expect(viewModel.memos.first?.canvas.elements.count == 1)
@@ -175,7 +175,7 @@ struct AppRootViewModelTests {
         let repository = CountingMemoRepository()
         let viewModel = makeViewModel(repository: repository)
 
-        await viewModel.addElement(using: .rectangle)
+        await viewModel.addImageElement()
 
         #expect(viewModel.memos.isEmpty)
         #expect(repository.saveCallCount == 0)

@@ -1,7 +1,17 @@
 # 4. qool への取り込み計画
 
-StarWindow（macOS / AppKit）の機能を qool（iOS / iPadOS / SwiftUI）へ移すときの
-対応関係と、実際に問題になる箇所の整理です。
+StarWindow（macOS / AppKit）の機能を qool へ移すときの対応関係と、
+実際に問題になる箇所の整理です。
+
+> **これは移植を始めた時点の計画です。**
+> 4.1〜4.6 は「そのとき何を見込んで、何を決めたか」の記録として残しています。
+> **今のコードの構成は [AGENTS.md](../../AGENTS.md) が正です。**
+> 進み具合は [4.7](#47-取り込みの進め方提案) に印を付けています。
+>
+> 計画から外れた大きな判断が 1 つあります。**切り抜きの「正」を多角形から
+> グレースケールのラスターマスクへ移しました**（[#12](https://github.com/Greatnishioka/qool/issues/12)）。
+> 髪・毛皮・ガラス・煙のような、縁が半透明になるものを多角形では表せないためです。
+> ベクターは「入力手段」として残っています。
 
 ## 4.1 レイヤ配置
 
@@ -10,8 +20,8 @@ StarWindow の構成はほぼそのまま対応します（StarWindow 側も同�
 
 | qool のレイヤ | 置くもの |
 |---------------|----------|
-| `Domain/Models` | `ContourCandidate` / `ContourCandidateSource` / `RasterContourMask` / `RasterSelectionMask` / `ContourBlurMode` |
-| `Domain/Services` | `ContourSmoother` / `ContourPadding` / `ContourCandidateSelector` / `ContourQualityValidator` / `RectangularGuideContour` / `CurvePathBuilder` |
+| `Domain/Models` | `ContourCandidate` / `ContourCandidateSource` / `ContourBlurMode`、およびマスク一式（`CutoutMask` / `CutoutMaskReference` / `CutoutMaskEditHistory`） |
+| `Domain/Services` | `ContourSmoother` / `ContourPadding` / `ContourCandidateSelector` / `RectangularGuideContour` / `CurvePathBuilder` |
 | `Application/UseCases` | 「輪郭候補を抽出する」「マスクを編集する」「切り抜き画像を書き出す」の 3 系統 |
 | `Infrastructure` | Vision / CoreImage の各抽出器、画像レンダラ、画像の読み込みと保存 |
 | `Presentation` | 切り抜き画面・調整画面の View と ViewModel |
@@ -72,10 +82,12 @@ StarWindow は最初から macOS / AppKit で書かれているため、**この
 
 ## 4.3 qool 側のモデル拡張
 
-現在の `CanvasElement` には**画像を持つ手段がありません**。`.imageCutout` は
-固定シルエット (`CutoutShape`) を塗り色で描いているだけです。
+> **実装済みです。** `imageAssetID` / `imageAdjustment` / `imageSource` / `cutoutMask` /
+> `strokeAlignment` が `CanvasElement` に入りました。
+> **`CanvasElement` は独自の `Codable` を持つので、プロパティを足したら 3 箇所を直します**
+> （[AGENTS.md](../../AGENTS.md#canvaselement-にプロパティを足したら-3-箇所を直す)）。
 
-必要になるもの:
+計画時点で必要と見込んでいたものは次のとおりです。
 
 - 画像本体への参照（`NSImage` を直接持たず、ID でリポジトリ経由が望ましい。`Memo` は `Equatable`/`Hashable` なので画像を値として持たせると比較コストが問題になります）
 - 切り抜き輪郭 — **既存の `pathContours: [CanvasPathContour]` がそのまま使えます**（正規化座標という前提も一致）
@@ -157,7 +169,16 @@ StarWindow は macOS のデスクトップ性能を前提に、重い処理を�
 | プレビュー画像生成 | マスクと輪郭線の RGBA バッファを毎回組み立てて `NSImage` 化 |
 | デバッグ出力 | `contourDebugImageExport` が既定で `true`。PNG をディスクへ書き出す |
 
-対策として最低限必要なもの:
+> **実際に効いた対策は 3 つでした。**
+>
+> - マスクの画素数に上限を置く（表示に要る細かさは元画像よりずっと粗い）
+> - 膨張とぼかしを窓の出入りだけの計算にする（半径を広げても手数が変わらない）
+> - 復号・膨張を `body` の外へ出し、結果を `NSCache` に載せる
+>
+> **性能は最適化を有効にして測ります。** Debug ビルドの数字で設計を変えかけたことがあり、
+> 画素をなめる処理では 45 倍違いました（[#16](https://github.com/Greatnishioka/qool/issues/16)）。
+
+対策として最低限必要と見込んでいたもの:
 
 - 抽出・色域選択・白フチ除去・詳細抽出を**バックグラウンドへ退避**し、進捗表示を出す
 - ラスター解像度を可変にする（StarWindow も 640 → 1024 へ上げた経緯があり、品質と速度のトレードオフは調整済みの実績がある）
@@ -185,12 +206,12 @@ StarWindow は macOS のデスクトップ性能を前提に、重い処理を�
 
 ### 第 2 段階: 切り抜きを実用にする（MVP 必須）
 
-5. **画像の取り込みと手動切り抜き**
-   `NSOpenPanel` + ドラッグ&ドロップ + 手描きなぞり → `ContourSmoother.polished()` だけで切り抜く。
-   ここで qool の画像切り抜き画面がモックでなくなる
-6. **輪郭候補の自動抽出**
-   抽出器を 1 つずつ移植し、候補選択バーを追加。
-   **被写体マスク（bias +0.55）と矩形補正の 2 つから始めるのが費用対効果が高い**
+5. ~~**画像の取り込みと手動切り抜き**~~ **完了。**
+   `NSOpenPanel` + ドラッグ&ドロップ + 手描きなぞり
+6. ~~**輪郭候補の自動抽出**~~ **完了。**
+   被写体マスク（Vision）・grabCut（OpenCV）・矩形補正・なぞりそのままの 4 つ。
+   **7 種類は移植していません。** 自前実装と OpenCV を並べて実機で見比べた結果、
+   grabCut が枠線のない被写体で明確に勝ったため、そちらへ寄せました
 
 ### 第 3 段階: Mac のメモとして使えるようにする（MVP 必須）
 
@@ -205,8 +226,10 @@ StarWindow は macOS のデスクトップ性能を前提に、重い処理を�
 
 ### 第 4 段階: 品質を上げる（MVP 後）
 
-9. **ラスターマスク編集** — ペン / 消しゴム / 投げ縄
-10. **仕上げ機能** — 色域選択 / 白フチ除去 / 部分詳細抽出 / 曲線ツール
+9. ~~**ラスターマスク編集** — ペン / 消しゴム / 投げ縄~~ **完了。**
+   ここでマスクが切り抜きの「正」になりました（[#12](https://github.com/Greatnishioka/qool/issues/12)）。
+   戻る / やり直すは変更のあった矩形だけを持ちます（`CutoutMaskEditHistory`）
+10. **仕上げ機能** — ~~色域選択~~（完了）/ 白フチ除去 / 部分詳細抽出 / 曲線ツール
 11. **テキスト表示域** — `NSTextView.textContainer.exclusionPaths` で
     [spec.md](../spec.md) の「パスを用いて入力欄を設定できる」を実現する
 

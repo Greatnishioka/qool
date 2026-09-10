@@ -31,7 +31,7 @@ struct HotKeyTests {
     private final class InMemorySettings: AppSettingsProtocol {
         var hotKeyConfiguration: HotKeyConfiguration = .default
         var mainMemoID: Memo.ID?
-        var editHistoryLimit = ContourEditHistory.defaultLimit
+        var editHistoryLimit = CutoutMaskEditHistory.defaultLimit
     }
 
     private func makeCoordinator(
