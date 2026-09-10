@@ -12,6 +12,9 @@ nonisolated struct CutoutMaskFilters {
 
     /// 縦横それぞれの半径で膨らませたマスク。
     ///
+    /// **正方形ではなく八角形に広げます。** 縦横に窓を滑らせるだけだと、
+    /// 斜めへ半径の √2 倍まで出て角が張ります。
+    ///
     /// **縦横を別々に受け取ります。** 要素は非等比に変形できるため、
     /// 表示上で同じ幅の余白でも、マスク上では縦横で画素数が変わります。
     ///
@@ -278,7 +281,21 @@ nonisolated struct CutoutMaskFilters {
 
     // MARK: - 最大値フィルタ
 
-    /// **確保を使い回します。** 。
+    /// 窓を滑らせる 1 本の道。始点と長さ、隣までの間隔。
+    ///
+    /// **斜めも同じ処理で走らせるために持ちます。** 間隔を `width + 1` にすれば
+    /// 右下へ、`width - 1` にすれば左下へ進みます。
+    private struct Run {
+        let start: Int
+        let count: Int
+        let step: Int
+    }
+
+    /// 八角形の窓での最大値。
+    ///
+    /// **正方形と菱形に分けて掛けています。** 円の窓をそのまま滑らせると
+    /// 半径に比例して手数が増えます。縦横 2 回と斜め 2 回に分ければ、
+    /// 半径によらず 4 度の走査で済み、形は円に十分近づきます。
     private func maximumFiltered(
         _ values: [UInt8],
         width: Int,
@@ -286,48 +303,83 @@ nonisolated struct CutoutMaskFilters {
         radiusX: Int,
         radiusY: Int
     ) -> [UInt8] {
-        var horizontal = values
-        var result = values
-        // 単調減少の窓に使う添字。行と列で長いほうに合わせて 1 度だけ確保します。
+        let diagonal = diagonalRadius(for: min(radiusX, radiusY))
+        // 行と列で長いほうに合わせて 1 度だけ確保し、走査ごとに使い回します。
         var window = [Int](repeating: 0, count: max(width, height))
 
-        values.withUnsafeBufferPointer { source in
-            horizontal.withUnsafeMutableBufferPointer { destination in
-                window.withUnsafeMutableBufferPointer { window in
-                    guard radiusX > 0 else {
-                        return
-                    }
+        var result = maximum(
+            values,
+            runs: rowRuns(width: width, height: height),
+            radius: radiusX - diagonal * 2,
+            window: &window
+        )
+        result = maximum(
+            result,
+            runs: columnRuns(width: width, height: height),
+            radius: radiusY - diagonal * 2,
+            window: &window
+        )
 
-                    for row in 0..<height {
-                        slidingMaximum(
-                            source: source.baseAddress!,
-                            destination: destination.baseAddress!,
-                            start: row * width,
-                            count: width,
-                            step: 1,
-                            radius: radiusX,
-                            window: window.baseAddress!
-                        )
-                    }
-                }
-            }
+        guard diagonal > 0 else {
+            return result
         }
 
-        horizontal.withUnsafeBufferPointer { source in
+        result = maximum(
+            result,
+            runs: descendingRuns(width: width, height: height),
+            radius: diagonal,
+            window: &window
+        )
+
+        return maximum(
+            result,
+            runs: ascendingRuns(width: width, height: height),
+            radius: diagonal,
+            window: &window
+        )
+    }
+
+    /// 斜めへ走らせる半径。**半径 2 以下では 0 になり、正方形のままです。**
+    ///
+    /// 斜めの窓は 1 つ飛ばしの格子しか覆いません。隙間は縦横の窓が埋めるので、
+    /// そちらへ 1 画素も残らない大きさでは分けられません。
+    ///
+    /// 縦横へは `radius - diagonal * 2`、斜めへは `radius - diagonal` 出ます。
+    /// 斜めを円周（`radius / √2`）に合わせると `radius * (1 - 1 / √2)` になります。
+    private func diagonalRadius(for radius: Int) -> Int {
+        guard radius >= 3 else {
+            return 0
+        }
+
+        let ideal = Double(radius) * (1 - 1 / 2.0.squareRoot())
+
+        return min((radius - 1) / 2, Int(ideal.rounded()))
+    }
+
+    /// 道ごとに窓を滑らせた結果。半径が 0 なら何もせず返します。
+    private func maximum(
+        _ values: [UInt8],
+        runs: [Run],
+        radius: Int,
+        window: inout [Int]
+    ) -> [UInt8] {
+        guard radius > 0 else {
+            return values
+        }
+
+        var result = values
+
+        values.withUnsafeBufferPointer { source in
             result.withUnsafeMutableBufferPointer { destination in
                 window.withUnsafeMutableBufferPointer { window in
-                    guard radiusY > 0 else {
-                        return
-                    }
-
-                    for column in 0..<width {
+                    for run in runs {
                         slidingMaximum(
                             source: source.baseAddress!,
                             destination: destination.baseAddress!,
-                            start: column,
-                            count: height,
-                            step: width,
-                            radius: radiusY,
+                            start: run.start,
+                            count: run.count,
+                            step: run.step,
+                            radius: radius,
                             window: window.baseAddress!
                         )
                     }
@@ -335,7 +387,49 @@ nonisolated struct CutoutMaskFilters {
             }
         }
 
-        return radiusY > 0 ? result : horizontal
+        return result
+    }
+
+    private func rowRuns(width: Int, height: Int) -> [Run] {
+        (0..<height).map { Run(start: $0 * width, count: width, step: 1) }
+    }
+
+    private func columnRuns(width: Int, height: Int) -> [Run] {
+        (0..<width).map { Run(start: $0, count: height, step: width) }
+    }
+
+    /// 右下へ向かう道。**上の行と左の列から 1 本ずつ始まります。**
+    private func descendingRuns(width: Int, height: Int) -> [Run] {
+        var runs: [Run] = []
+        runs.reserveCapacity(width + height - 1)
+
+        for column in 0..<width {
+            runs.append(Run(start: column, count: min(height, width - column), step: width + 1))
+        }
+
+        for row in 1..<height {
+            runs.append(Run(start: row * width, count: min(width, height - row), step: width + 1))
+        }
+
+        return runs
+    }
+
+    /// 左下へ向かう道。**上の行と右の列から 1 本ずつ始まります。**
+    private func ascendingRuns(width: Int, height: Int) -> [Run] {
+        var runs: [Run] = []
+        runs.reserveCapacity(width + height - 1)
+
+        for column in 0..<width {
+            runs.append(Run(start: column, count: min(height, column + 1), step: width - 1))
+        }
+
+        for row in 1..<height {
+            runs.append(
+                Run(start: row * width + width - 1, count: min(width, height - row), step: width - 1)
+            )
+        }
+
+        return runs
     }
 
     /// 幅 `radius * 2 + 1` の窓での最大値。**要素の数に比例した手数で終わります。**

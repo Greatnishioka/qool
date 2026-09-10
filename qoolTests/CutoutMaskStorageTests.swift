@@ -54,6 +54,49 @@ struct CutoutMaskStorageTests {
         #expect(mask.value(at: CGPoint(x: 0.1, y: 0.9)) == 10)
     }
 
+    /// 上半分が白、下半分が黒の RGBA 画像。
+    ///
+    /// **1 チャンネルではないので、描き直す経路を通ります。**
+    /// 画素をそのまま読む経路とは別に、こちらの向きも確かめる必要があります。
+    private func imageWithBrightTop(size: Int = 4) -> CGImage? {
+        let context = CGContext(
+            data: nil,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )
+
+        guard let context else {
+            return nil
+        }
+
+        let length = CGFloat(size)
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: length, height: length))
+        // **`CGContext` は左下原点です。** ここを塗ると画像の下半分が黒くなります。
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: length, height: length / 2))
+
+        return context.makeImage()
+    }
+
+    @Test func 色の画像から作ったマスクの上下が保たれる() throws {
+        let image = try #require(imageWithBrightTop())
+
+        let mask = try #require(
+            codec.mask(from: image, extent: CGRect(x: 0, y: 0, width: 1, height: 1))
+        )
+
+        let top = mask.value(at: CGPoint(x: 0.5, y: 0.1))
+        let bottom = mask.value(at: CGPoint(x: 0.5, y: 0.9))
+
+        #expect(top == 255)
+        #expect(bottom == 0)
+    }
+
     // MARK: - 符号化
 
     @Test func 被覆率は値を変えずに往復する() throws {
