@@ -15,6 +15,13 @@ final class MarkdownTextView: NSTextView {
     /// 変換の状態が変わった。**変換中は外へ文字を出せない**ので、境目を知る必要があります。
     var onCompositionChange: (() -> Void)?
 
+    /// 直近に使った表示の決まりごと。**選択が動いたときに当て直すために持ちます。**
+    /// 通知からは `NSTextView` しか辿れないので、ここに置くほかありません。
+    var currentStyle = RichTextStyle(
+        baseFont: .systemFont(ofSize: NSFont.systemFontSize),
+        baseColor: .labelColor
+    )
+
     /// **文字の入れ物を自分で持ちます。** `NSTextLayoutManager.textContentManager` は
     /// 弱い参照なので、組み立てた場所を出た時点で入れ物が消え、
     /// **警告も出さずに TextKit 1 へ落ちます**（段階 0 で踏みました）。

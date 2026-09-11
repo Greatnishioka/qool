@@ -27,6 +27,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textView.onCompositionChange = { [weak textView] in
             context.coordinator.compositionDidChange(in: textView)
         }
+        context.coordinator.decorate(textView, style: style)
 
         // **スクロールビューに入れると、大きさは自分で決めることになります。**
         // SwiftUI に直接置いていたときは向こうが決めてくれていました。
@@ -49,6 +50,9 @@ struct MarkdownTextEditor: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .none
+        // **重ねる形にします。** 「スクロールバーを常に表示」の設定だと、
+        // 帯がずっと出たままになり、枠なしのメモに四角い線が乗ります。
+        scrollView.scrollerStyle = .overlay
 
         return scrollView
     }
@@ -71,6 +75,12 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
         applyExternalText(to: textView)
         applyEditability(to: textView)
+        context.coordinator.decorate(textView, style: style)
+    }
+
+    /// 表示の決まりごと。**要素の色を既定にし、`<span>` が上書きします。**
+    private var style: RichTextStyle {
+        RichTextStyle(baseFont: font, baseColor: textColor)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -123,6 +133,11 @@ struct MarkdownTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
 
+        private let builder = MarkdownAttributedTextBuilder()
+        /// 直前に当てた組み合わせ。**同じなら当て直しません。**
+        /// 選択が動くたびに全文へ属性を貼ると、レイアウトが毎回作り直されます。
+        private var lastDecoration: (text: String, active: NSRange)?
+
         init(text: Binding<String>) {
             self.text = text
         }
@@ -133,6 +148,59 @@ struct MarkdownTextEditor: NSViewRepresentable {
             }
 
             publish(from: textView)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? MarkdownTextView else {
+                return
+            }
+
+            decorate(textView, style: textView.currentStyle)
+        }
+
+        /// 装飾を当て直す。
+        ///
+        /// **変換中は触りません。** 途中の文字列へ属性を貼ると変換が中断されます。
+        func decorate(_ textView: MarkdownTextView, style: RichTextStyle) {
+            guard !textView.isComposing, let storage = textView.textStorage else {
+                return
+            }
+
+            textView.currentStyle = style
+
+            let markdown = textView.string
+            let selection = textView.isEditable ? textView.selectedRange() : nil
+            let active = MarkdownAttributedTextBuilder.activeRange(
+                for: selection ?? NSRange(location: 0, length: 0),
+                in: markdown as NSString
+            )
+            let key = (text: markdown, active: selection == nil ? NSRange(location: NSNotFound, length: 0) : active)
+
+            if let lastDecoration, lastDecoration.text == key.text, lastDecoration.active == key.active {
+                return
+            }
+
+            lastDecoration = key
+
+            let decorated = builder.attributedString(
+                markdown: markdown,
+                selection: selection,
+                style: style
+            )
+            let full = NSRange(location: 0, length: storage.length)
+
+            storage.beginEditing()
+            decorated.enumerateAttributes(in: full) { attributes, range, _ in
+                storage.setAttributes(attributes, range: range)
+            }
+            storage.endEditing()
+
+            // **次に打つ文字が潰れた記法の書体を引き継がないようにします。**
+            // 隠した記法のすぐ後ろにキャレットがあると、0.01pt の透明な文字になります。
+            textView.typingAttributes = [
+                .font: style.baseFont,
+                .foregroundColor: style.baseColor
+            ]
         }
 
         /// 変換が終わった瞬間にも出します。

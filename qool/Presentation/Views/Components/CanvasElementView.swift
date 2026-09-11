@@ -5,8 +5,13 @@ import SwiftUI
 ///
 /// 入力（ジェスチャ）は [CanvasSurface](CanvasSurface.swift) が持ち、こちらは描画だけを担います。
 struct CanvasElementView: View {
-    /// 本文の見た目。**中央揃えはやめました。** 見出しや箇条書きが中央に来ると読めません。
-    private static let bodyFont = NSFont.systemFont(ofSize: 20, weight: .semibold)
+    /// 本文の書体。
+    ///
+    /// **semibold をやめて regular にしました。** semibold は書体の特性として
+    /// 既に太字なので、`**太字**` を当てても見た目が変わりません。
+    ///
+    /// **中央揃えもやめました。** 見出しや箇条書きが中央に来ると読めません。
+    private static let bodyFont = NSFont.systemFont(ofSize: 20)
 
     let element: CanvasElement
     let isSelected: Bool
