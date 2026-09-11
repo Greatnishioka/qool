@@ -104,17 +104,14 @@ struct CanvasPropertiesPanel: View {
         }
 
         if element.kind == .text {
+            // **入力欄はここに置きません。** 本文はキャンバス上で直接書き換えます。
+            // 2 か所から同じ文字列を触れると、片方の選択と変換がもう片方の反映で飛びます。
             VStack(alignment: .leading, spacing: 8) {
                 Text("テキスト")
                     .font(.subheadline.weight(.semibold))
-                TextField(
-                    "テキスト",
-                    text: Binding(
-                        get: { viewModel.selectedElement?.text ?? "" },
-                        set: { viewModel.updateText($0) }
-                    )
-                )
-                .textFieldStyle(.roundedBorder)
+                Text("ダブルクリックで本文を書き換えられます。Esc で戻ります。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
 

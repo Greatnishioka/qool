@@ -74,10 +74,12 @@ struct CanvasSurface: View {
                 element: resizingPreview(of: element),
                 isSelected: selectedElementIDs.contains(element.id),
                 image: viewModel.image(for: element),
-                drawingMask: viewModel.drawingMask(for: element)
+                drawingMask: viewModel.drawingMask(for: element),
+                isEditingText: viewModel.editingTextElementID == element.id,
+                onTextChange: { viewModel.updateText($0, of: element.id) },
+                onEndEditingText: { viewModel.endEditingText() }
             )
             .offset(dragOffset(for: element.id))
-            .allowsHitTesting(false)
         }
     }
 
@@ -123,6 +125,12 @@ struct CanvasSurface: View {
     private var doubleClickGesture: some Gesture {
         SpatialTapGesture(count: 2)
             .onEnded { value in
+                // **テキストを先に見ます。** 結合の中身を開く操作と同じ間合いなので、
+                // 順番を逆にすると、テキストを含む結合要素で本文へ入れません。
+                guard !viewModel.beginEditingText(at: value.location) else {
+                    return
+                }
+
                 viewModel.beginEditingUnionElement(at: value.location)
             }
     }
@@ -149,6 +157,9 @@ struct CanvasSurface: View {
         // 対象はドラッグ開始時に一度だけ決め、以降は変えません。
         // 途中で決め直すと、動かしている最中に掴む要素が入れ替わります。
         if case .none = dragTarget {
+            // **本文の外を触ったら書き換えを終えます。** 中を触ったクリックは
+            // テキストビューが取るので、ここまで来ません。
+            viewModel.endEditingText()
             dragTarget = makeDragTarget(at: value.startLocation, current: value.location)
         }
 

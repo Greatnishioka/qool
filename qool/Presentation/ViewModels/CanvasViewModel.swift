@@ -21,6 +21,12 @@ final class CanvasViewModel: ObservableObject {
     @Published var editingUnionElementID: CanvasElement.ID?
     @Published var selectedUnionSourceID: CanvasElementSnapshot.ID?
     @Published var draftElement: CanvasElement?
+    /// 本文を書き換えている要素。**ここが立っている間だけ、テキストが入力を受け取ります。**
+    ///
+    /// キャンバスの入力は背景の 1 つのジェスチャに集約しています。
+    /// テキストが常に入力を取ると選択も移動もできなくなるため、
+    /// **ダブルクリックで入り、Esc か外側のクリックで抜ける**形にしました。
+    @Published private(set) var editingTextElementID: CanvasElement.ID?
 
     private var pathDraftPoints: [CGPoint] = []
     private let selectionService: CanvasSelectionService
@@ -408,6 +414,7 @@ final class CanvasViewModel: ObservableObject {
         selectedElementIDs.removeAll()
         editingUnionElementID = nil
         selectedUnionSourceID = nil
+        endEditingText()
     }
 
     func selectTool(_ tool: CanvasTool) {
@@ -416,6 +423,8 @@ final class CanvasViewModel: ObservableObject {
         }
 
         selectedTool = tool
+        endEditingText()
+
         if tool != .select {
             clearSelection()
         }
@@ -656,12 +665,6 @@ final class CanvasViewModel: ObservableObject {
         }
     }
 
-    func updateText(_ text: String) {
-        updateSelectedElement { element in
-            element.text = text
-        }
-    }
-
     func deleteSelectedElement() {
         guard !selectedElementIDs.isEmpty else {
             return
@@ -727,6 +730,36 @@ final class CanvasViewModel: ObservableObject {
         selectedElementIDs = Set(sourceElements.map(\.id))
         editingUnionElementID = nil
         selectedUnionSourceID = nil
+        save()
+    }
+
+    func beginEditingText(at point: CGPoint) -> Bool {
+        guard selectedTool == .select,
+              let elementID = elementID(at: point),
+              memo.canvas.elements.first(where: { $0.id == elementID })?.kind == .text else {
+            return false
+        }
+
+        selectedElementIDs = [elementID]
+        editingTextElementID = elementID
+
+        return true
+    }
+
+    func endEditingText() {
+        guard editingTextElementID != nil else {
+            return
+        }
+
+        editingTextElementID = nil
+    }
+
+    /// 本文を書き換える。**編集中の要素へ直に書きます。** 選択に依らせると、
+    /// 貼ったメモのように選択の概念がない場所から書けません。
+    func updateText(_ text: String, of elementID: CanvasElement.ID) {
+        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
+            element.text = text
+        }
         save()
     }
 
