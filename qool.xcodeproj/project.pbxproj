@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		D9BCA0012FAE0001008D6132 /* iOverlay in Frameworks */ = {isa = PBXBuildFile; productRef = D9BCA0002FAE0001008D6132 /* iOverlay */; };
 		D9BCA0122FAE0001008D6132 /* OpenCV in Frameworks */ = {isa = PBXBuildFile; productRef = D9BCA0112FAE0001008D6132 /* OpenCV */; };
+		D9BCA0222FAE0001008D6132 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = D9BCA0212FAE0001008D6132 /* Markdown */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,6 +60,7 @@
 			files = (
 				D9BCA0012FAE0001008D6132 /* iOverlay in Frameworks */,
 				D9BCA0122FAE0001008D6132 /* OpenCV in Frameworks */,
+				D9BCA0222FAE0001008D6132 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -121,6 +123,7 @@
 			packageProductDependencies = (
 				D9BCA0002FAE0001008D6132 /* iOverlay */,
 				D9BCA0112FAE0001008D6132 /* OpenCV */,
+				D9BCA0212FAE0001008D6132 /* Markdown */,
 			);
 			productName = qool;
 			productReference = D9BC1EE62FAB8D11008D6132 /* qool.app */;
@@ -207,6 +210,7 @@
 			packageReferences = (
 				D9BCA0022FAE0001008D6132 /* XCRemoteSwiftPackageReference "iOverlay" */,
 				D9BCA0102FAE0001008D6132 /* XCRemoteSwiftPackageReference "opencv-spm" */,
+				D9BCA0202FAE0001008D6132 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D9BC1EE72FAB8D11008D6132 /* Products */;
@@ -617,6 +621,14 @@
 				minimumVersion = 4.10.0;
 			};
 		};
+		D9BCA0202FAE0001008D6132 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-markdown";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.8.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -629,6 +641,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D9BCA0102FAE0001008D6132 /* XCRemoteSwiftPackageReference "opencv-spm" */;
 			productName = OpenCV;
+		};
+		D9BCA0212FAE0001008D6132 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D9BCA0202FAE0001008D6132 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
