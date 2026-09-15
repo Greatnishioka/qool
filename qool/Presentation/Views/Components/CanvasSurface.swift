@@ -49,6 +49,7 @@ struct CanvasSurface: View {
                 unionSourceLayer
                 marqueeLayer
                 draftLayer
+                toolbarLayer
             }
             .clipShape(Rectangle())
             .onGeometryChange(for: CGSize.self) { $0.size } action: { canvasSize = $0 }
@@ -74,10 +75,16 @@ struct CanvasSurface: View {
                 element: resizingPreview(of: element),
                 isSelected: selectedElementIDs.contains(element.id),
                 image: viewModel.image(for: element),
-                drawingMask: viewModel.drawingMask(for: element)
+                drawingMask: viewModel.drawingMask(for: element),
+                textEditing: CanvasTextEditing(
+                    isEditing: viewModel.editingTextElementID == element.id,
+                    selection: $viewModel.textSelection,
+                    onChange: { viewModel.updateText($0, of: element.id) },
+                    onEndEditing: { viewModel.endEditingText() },
+                    onSelectionGeometry: { viewModel.updateTextSelectionRect($0) }
+                )
             )
             .offset(dragOffset(for: element.id))
-            .allowsHitTesting(false)
         }
     }
 
@@ -92,6 +99,26 @@ struct CanvasSurface: View {
             .opacity(selectedUnionSourceID == sourceElement.id ? 0.62 : 0.34)
             .offset(unionSourceOffset(for: sourceElement.id))
             .allowsHitTesting(false)
+        }
+    }
+
+    /// 書式の道具。**選んだ範囲の上に浮かせます。**
+    ///
+    /// **要素の中ではなくキャンバスへ置きます。** 要素に重ねると、回転や切り抜きの
+    /// 影響を受けて道具まで傾きます。
+    @ViewBuilder
+    private var toolbarLayer: some View {
+        if let elementID = viewModel.editingTextElementID,
+           let element = elements.first(where: { $0.id == elementID }),
+           let rect = viewModel.textSelectionRect {
+            RichTextToolbar(
+                onStyle: { viewModel.applyInlineStyle($0) },
+                onColor: { viewModel.applyTextColor($0) }
+            )
+            .position(
+                x: element.frame.minX + rect.midX,
+                y: max(16, element.frame.minY + rect.minY - 18)
+            )
         }
     }
 
@@ -123,6 +150,12 @@ struct CanvasSurface: View {
     private var doubleClickGesture: some Gesture {
         SpatialTapGesture(count: 2)
             .onEnded { value in
+                // **テキストを先に見ます。** 結合の中身を開く操作と同じ間合いなので、
+                // 順番を逆にすると、テキストを含む結合要素で本文へ入れません。
+                guard !viewModel.beginEditingText(at: value.location) else {
+                    return
+                }
+
                 viewModel.beginEditingUnionElement(at: value.location)
             }
     }
@@ -149,6 +182,9 @@ struct CanvasSurface: View {
         // 対象はドラッグ開始時に一度だけ決め、以降は変えません。
         // 途中で決め直すと、動かしている最中に掴む要素が入れ替わります。
         if case .none = dragTarget {
+            // **本文の外を触ったら書き換えを終えます。** 中を触ったクリックは
+            // テキストビューが取るので、ここまで来ません。
+            viewModel.endEditingText()
             dragTarget = makeDragTarget(at: value.startLocation, current: value.location)
         }
 

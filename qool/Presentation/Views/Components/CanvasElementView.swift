@@ -5,6 +5,14 @@ import SwiftUI
 ///
 /// 入力（ジェスチャ）は [CanvasSurface](CanvasSurface.swift) が持ち、こちらは描画だけを担います。
 struct CanvasElementView: View {
+    /// 本文の書体。
+    ///
+    /// **semibold をやめて regular にしました。** semibold は書体の特性として
+    /// 既に太字なので、`**太字**` を当てても見た目が変わりません。
+    ///
+    /// **中央揃えもやめました。** 見出しや箇条書きが中央に来ると読めません。
+    private static let bodyFont = NSFont.systemFont(ofSize: 20)
+
     let element: CanvasElement
     let isSelected: Bool
     /// 切り抜きの元画像。取り込み前や読み込み失敗では `nil` で、その場合は枠だけ描きます。
@@ -13,6 +21,8 @@ struct CanvasElementView: View {
     /// 縁に中間の被覆率を持てるので、輪郭で抜くよりなめらかになります。
     /// まだ切り抜いていない要素や、マスクを読めなかった要素では `nil` です。
     var drawingMask: CutoutDrawingMask?
+    /// 本文を書き換えるための持ち回り。**渡さなければ表示だけ**になります。
+    var textEditing: CanvasTextEditing?
 
     var body: some View {
         elementBody
@@ -24,7 +34,9 @@ struct CanvasElementView: View {
             }
             .rotationEffect(.degrees(element.rotationAngleDegrees))
             .position(x: element.frame.midX, y: element.frame.midY)
-            .allowsHitTesting(false)
+            // **書き換えている間だけ入力を受け取ります。** 常に受け取ると、
+            // 背景の 1 つのジェスチャに集約している選択と移動が効かなくなります。
+            .allowsHitTesting(textEditing?.isEditing ?? false)
     }
 
     @ViewBuilder
@@ -56,13 +68,21 @@ struct CanvasElementView: View {
                     style: StrokeStyle(lineWidth: max(1, element.strokeWidth), lineCap: .round)
                 )
         case .text:
-            Text(element.text.isEmpty ? "テキスト" : element.text)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(element.strokeColor.swiftUIColor)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(element.fillColor.swiftUIColor)
-                .overlay(strokeOverlay(Rectangle()))
+            MarkdownTextEditor(
+                text: Binding(
+                    get: { element.text },
+                    set: { textEditing?.onChange($0) }
+                ),
+                selection: textEditing?.selection ?? .constant(NSRange(location: 0, length: 0)),
+                isEditing: textEditing?.isEditing ?? false,
+                font: Self.bodyFont,
+                textColor: NSColor(element.strokeColor.swiftUIColor),
+                onEndEditing: { textEditing?.onEndEditing() },
+                onSelectionGeometry: { textEditing?.onSelectionGeometry($0) }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(element.fillColor.swiftUIColor)
+            .overlay(strokeOverlay(Rectangle()))
         case .imageCutout:
             if let image {
                 // 輪郭がなければ矩形のまま。切り抜き前でも画像は見えます。

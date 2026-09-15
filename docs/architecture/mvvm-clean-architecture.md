@@ -23,11 +23,14 @@ qool/
   Presentation/
     Enums/          MemoPersistenceStatus / CanvasDragTarget / CutoutSheetTool
     Views/          メモパネル / キャンバス / 画像切り抜き / フローティングメモ / 設定
-                    Components/  要素・キャンバス面・プロパティ・ツールドックなど
+                    Components/  要素・キャンバス面・プロパティ・ツールドック
+                                 / MarkdownTextEditor / RichTextToolbar
     ViewModels/     AppRootViewModel / CanvasViewModel
     Support/        CanvasColor+SwiftUI / RGBAComponents+SwiftUI
                     / CanvasImageStore / CutoutMaskStore / CutoutDrawingMask
                     / CutoutEditingBase / FloatingMemoPresenter / HotKeyCoordinator
+                    / MarkdownAttributedTextBuilder / MarkdownDecoration / RichTextStyle
+                    / MarkdownEditingSync / CanvasTextEditing
   Application/
     UseCases/
       Memo/         Load / Create / Save / Delete / FlushMemos / ObserveWriteStates
@@ -36,28 +39,34 @@ qool/
                     / UnionCanvasElements / BuildFloatingMemoOutline
       Image/        BuildCutoutCandidates / BuildCutoutContour / EditCutoutMask
                     / ImportImage / PruneImageAssets
+      Text/         ToggleInlineMarkdownStyle / ApplyMarkdownColor
+                    / MarkdownSyntaxBoundary
   Domain/
     Enums/          CanvasElementKind / CanvasTool / CanvasColor / CanvasElementOrder
                     / CanvasResizeCorner / CanvasStrokeAlignment / ContourCandidateSource
                     / ContourEditMode / ImageBlurDirection / MemoWriteState
                     / HotKeyAction / VirtualKey
+                    / RichTextSpanKind / InlineMarkdownStyle
     Models/         Memo / Canvas / CanvasElement / CanvasElementSnapshot
                     / CanvasPathContour / NormalizedPoint / RGBAComponents
                     / ImageCutoutDraft / ImageAdjustment / FloatingMemoOutline
                     / ContourCandidate / CutoutCandidate / CutoutCrop
                     / CutoutImageSource / CutoutMask / CutoutMaskReference
-                    / CutoutMaskEditHistory / HotKey 一式
+                    / CutoutMaskEditHistory / RichTextSpan / HotKey 一式
     Coding/         各モデルの手書き Codable 実装
     Repositories/   MemoRepositoryProtocol / MemoWriteMonitoringProtocol
                     / ImageAssetRepositoryProtocol / AppSettingsProtocol
                     / CutoutMaskExtractorProtocol / MaskContourDeriverProtocol
                     / RegionMaskExtractorProtocol / GlobalHotKeyProtocol
+                    / MarkdownParserProtocol
     Services/       CanvasSelectionService / CanvasDraftElementBuilder
                     / CanvasElementPolygons / ContourGeometry / ContourHitTest
                     / ContourSmoother / ContourPadding / ContourCandidateSelector
                     / RectangularGuideContour / CutoutCropGeometry
                     / CutoutMaskFilters / CutoutMaskRasterizer / CutoutMaskStamp
+                    / MarkdownSelectionGuard
     Support/        CGRect+UnitSpace / CGRect+UnitExtent（正規化座標のヘルパー）
+                    / NSRange+Clamped
   Infrastructure/
     Enums/          MemoWriteFailure / HotKeyRegistrationFailure
     Persistence/    MemoStorageLayout（ディスク上の配置）
@@ -68,8 +77,9 @@ qool/
     Vision/         SubjectMaskExtractorInfrastructure
     OpenCV/         GrabCutContourExtractorInfrastructure / MaskContourDeriverInfrastructure
                     / RegionFillExtractorInfrastructure
+    Markdown/       SwiftMarkdownParserInfrastructure / MarkdownSourceOffsets
     AppKit/         フローティングメモウィンドウ / グローバルホットキー
-                    / スクロールとスペースキーの入力
+                    / スクロールとスペースキーの入力 / MarkdownTextView
 ```
 
 **画像編集は StarWindow から移植しました。** 向こうも同じレイヤ分割だったため、
