@@ -19,14 +19,18 @@ final class MarkdownTextView: NSTextView {
     ///
     /// **キャレットと選択をここへ入れないために持ちます。** 文字としては残っているので、
     /// 放っておくと見えないタグが選択に入り、書式を付けたときに本文が壊れます。
-    var hiddenSyntaxRanges: [NSRange] = []
+    private(set) var hiddenSyntaxRanges: [NSRange] = []
 
-    /// 直近に使った表示の決まりごと。**選択が動いたときに当て直すために持ちます。**
-    /// 通知からは `NSTextView` しか辿れないので、ここに置くほかありません。
-    var currentStyle = RichTextStyle(
-        baseFont: .systemFont(ofSize: NSFont.systemFontSize),
-        baseColor: .labelColor
-    )
+    /// その範囲を数えたときの本文。
+    ///
+    /// **本文が変われば位置はずれます。** 文字を消した直後に古い位置で守ると、
+    /// 関係のない場所へキャレットが飛びます。一致するときだけ使います。
+    private(set) var hiddenSyntaxSource = ""
+
+    func setHiddenSyntaxRanges(_ ranges: [NSRange], for source: String) {
+        hiddenSyntaxRanges = ranges
+        hiddenSyntaxSource = source
+    }
 
     /// **文字の入れ物を自分で持ちます。** `NSTextLayoutManager.textContentManager` は
     /// 弱い参照なので、組み立てた場所を出た時点で入れ物が消え、
@@ -131,6 +135,10 @@ final class MarkdownTextView: NSTextView {
 
     /// 記法にかかっていれば、その記法ごと消す。消したら `true`。
     private func deleteMergingSyntax(_ target: NSRange) -> Bool {
+        guard hiddenSyntaxSource == string else {
+            return false
+        }
+
         let merged = selectionGuard.deletion(target, avoiding: hiddenSyntaxRanges)
 
         guard merged != target, merged.length > 0, shouldChangeText(in: merged, replacementString: "") else {

@@ -76,11 +76,13 @@ struct CanvasSurface: View {
                 isSelected: selectedElementIDs.contains(element.id),
                 image: viewModel.image(for: element),
                 drawingMask: viewModel.drawingMask(for: element),
-                isEditingText: viewModel.editingTextElementID == element.id,
-                onTextChange: { viewModel.updateText($0, of: element.id) },
-                onEndEditingText: { viewModel.endEditingText() },
-                textSelection: $viewModel.textSelection,
-                onTextSelectionGeometry: { viewModel.updateTextSelectionRect($0) }
+                textEditing: CanvasTextEditing(
+                    isEditing: viewModel.editingTextElementID == element.id,
+                    selection: $viewModel.textSelection,
+                    onChange: { viewModel.updateText($0, of: element.id) },
+                    onEndEditing: { viewModel.endEditingText() },
+                    onSelectionGeometry: { viewModel.updateTextSelectionRect($0) }
+                )
             )
             .offset(dragOffset(for: element.id))
         }

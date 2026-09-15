@@ -48,6 +48,9 @@ nonisolated struct RichTextStyle {
             return [.paragraphStyle: Self.listParagraphStyle(base: baseFont)]
         case let .color(components):
             return [.foregroundColor: Self.color(components)]
+        case .listMarker:
+            // **隠しません。** 記号そのものが箇条書きの目印です。
+            return [.foregroundColor: baseColor.withAlphaComponent(0.55)]
         case .syntax:
             return [:]
         }

@@ -89,6 +89,23 @@ struct MarkdownAttributedTextTests {
         #expect(traits?.contains(.italic) ?? false)
     }
 
+    /// **箇条書きの記号は隠しません。** 潰すとただの段落に見えます
+    /// （実際に見えなくなっていました）。文字列は変えられないので記号をそのまま見せます。
+    @Test func 箇条書きの記号は表示でも見える() {
+        let text = decorated("- ひとつ\n- ふたつ")
+        let marker = font(text, at: 0)?.pointSize ?? 0
+
+        #expect(marker > 1)
+    }
+
+    @Test func 番号とチェックの記号も見える() {
+        let ordered = decorated("3. みっつ")
+        let checkbox = decorated("- [x] すんだ")
+
+        #expect((font(ordered, at: 0)?.pointSize ?? 0) > 1)
+        #expect((font(checkbox, at: 0)?.pointSize ?? 0) > 1)
+    }
+
     // MARK: - 記法の見せ方
 
     /// 編集していないときは記法を見せません。

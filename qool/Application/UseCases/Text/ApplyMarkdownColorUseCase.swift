@@ -13,7 +13,12 @@ nonisolated struct ApplyMarkdownColorUseCase {
 
     private static let closeTag = "</span>"
 
-    init() {}
+    private let parser: any MarkdownParserProtocol
+    private let selectionGuard = MarkdownSelectionGuard()
+
+    init(parser: any MarkdownParserProtocol = SwiftMarkdownParserInfrastructure()) {
+        self.parser = parser
+    }
 
     /// - Parameter color: `nil` を渡すと、囲っている指定を外します。
     func callAsFunction(
@@ -22,7 +27,14 @@ nonisolated struct ApplyMarkdownColorUseCase {
         color: RGBAComponents?
     ) -> Result {
         let source = markdown as NSString
-        let range = ToggleInlineMarkdownStyleUseCase.clamped(selection, in: source)
+        guard let range = MarkdownSyntaxBoundary.selection(
+            selection,
+            in: markdown,
+            parser: parser,
+            guard: selectionGuard
+        ) else {
+            return Result(markdown: markdown, selection: selection.clamped(toLength: source.length))
+        }
 
         if let unwrapped = removing(source, range: range) {
             // 外したうえで、新しい色があれば付け直します。

@@ -24,9 +24,8 @@ struct MarkdownTextEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let textView = MarkdownTextView.make()
         // **見た目を先に決めます。** `string` を入れると選択が動いたことになり、
-        // その場で装飾が走ります。先に delegate を付けると、**既定の 13pt で当たります**
-        // （記録で確認しました）。
-        textView.currentStyle = style
+        // その場で装飾が走ります。先に delegate を付けると、決めていない見た目で当たります。
+        context.coordinator.style = style
         textView.string = text
         textView.font = font
         textView.textColor = textColor
@@ -74,6 +73,13 @@ struct MarkdownTextEditor: NSViewRepresentable {
             return
         }
 
+        // **比べてから入れ替えます。** 先に入れると必ず一致してしまい、
+        // 見た目を変えても装飾が当て直されません。
+        if context.coordinator.style?.baseFont != font || context.coordinator.style?.baseColor != textColor {
+            context.coordinator.invalidateDecoration()
+        }
+
+        context.coordinator.style = style
         context.coordinator.text = $text
         textView.onEndEditing = onEndEditing
 
@@ -82,9 +88,6 @@ struct MarkdownTextEditor: NSViewRepresentable {
         // 記法を潰すと先頭が 0.01pt になるため、次の更新で「違う」と判断されて
         // **自分で当てた装飾を自分で消していました**（記録で確認しました）。
         // 本文の書体と色は装飾がまとめて当てるので、ここでは触りません。
-        if textView.currentStyle.baseFont != font || textView.currentStyle.baseColor != textColor {
-            context.coordinator.invalidateDecoration()
-        }
 
         context.coordinator.selection = $selection
         context.coordinator.onSelectionGeometry = onSelectionGeometry
@@ -172,6 +175,10 @@ struct MarkdownTextEditor: NSViewRepresentable {
         /// 直前に外へ出した選択。**返ってきたものを当て直さない**ために覚えます。
         private(set) var lastPublishedSelection: NSRange?
 
+        /// 直近の見た目。**選択が動いたときに当て直すために持ちます。**
+        /// 通知からは `NSTextView` しか辿れないので、こちらで覚えておきます。
+        var style: RichTextStyle?
+
         private let builder = MarkdownAttributedTextBuilder()
         private let selectionGuard = MarkdownSelectionGuard()
         /// 直前に当てた組み合わせ。**同じなら当て直しません。**
@@ -203,6 +210,14 @@ struct MarkdownTextEditor: NSViewRepresentable {
                 return newSelectedCharRange
             }
 
+            // **本文が変わった直後は守りません。** 隠れている記法の位置は
+            // 直前に装飾したときのもので、文字を消したあとはずれています。
+            // **変換中も守りません。** 途中の文字列に対して動かすと変換が飛びます。
+            guard !markdownTextView.isComposing,
+                  markdownTextView.hiddenSyntaxSource == markdownTextView.string else {
+                return newSelectedCharRange
+            }
+
             return selectionGuard.selection(
                 newSelectedCharRange,
                 movingFrom: oldSelectedCharRange,
@@ -216,7 +231,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
                 return
             }
 
-            decorate(textView, style: textView.currentStyle)
+            decorate(textView, style: style ?? RichTextStyle(baseFont: .systemFont(ofSize: NSFont.systemFontSize), baseColor: .labelColor))
             publishSelection(from: textView)
         }
 
@@ -266,7 +281,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
                 return
             }
 
-            textView.currentStyle = style
+            self.style = style
 
             let markdown = textView.string
             let selection = textView.isEditable ? textView.selectedRange() : nil
@@ -288,7 +303,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
                 style: style
             )
             let decorated = decoration.text
-            textView.hiddenSyntaxRanges = decoration.hiddenSyntaxRanges
+            textView.setHiddenSyntaxRanges(decoration.hiddenSyntaxRanges, for: markdown)
             let full = NSRange(location: 0, length: storage.length)
 
             storage.beginEditing()

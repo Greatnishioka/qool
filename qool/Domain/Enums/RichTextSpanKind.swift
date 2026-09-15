@@ -17,6 +17,13 @@ nonisolated enum RichTextSpanKind: Equatable, Hashable {
     case listItem(ordinal: Int?, isChecked: Bool?)
     case color(RGBAComponents)
 
+    /// 箇条書きの `- `、番号の `1. `、チェックの `- [x] `。
+    ///
+    /// **記法ですが隠しません。** これ自体が箇条書きの目印で、
+    /// 潰すと**ただの段落に見えます**（実際に見えなくなっていました）。
+    /// 文字列は変えられないので、記号をそのまま見せます。
+    case listMarker
+
     /// 記法そのものの文字。`**` や `# `、`<span ...>` がこれにあたります。
     ///
     /// **これを持たないと WYSIWYG になりません。** 生の Markdown を抱えたまま

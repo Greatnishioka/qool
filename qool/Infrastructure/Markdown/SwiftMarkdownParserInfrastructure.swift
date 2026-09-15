@@ -136,11 +136,14 @@ private nonisolated struct SpanCollector {
             return outer
         }
 
+        // **リストの記号だけは別扱いです。** 隠すと箇条書きに見えなくなります。
+        let leadingKind: RichTextSpanKind = markup is ListItem ? .listMarker : .syntax
+
         if first.location > outer.location {
             spans.append(
                 RichTextSpan(
                     range: NSRange(location: outer.location, length: first.location - outer.location),
-                    kind: .syntax
+                    kind: leadingKind
                 )
             )
         }

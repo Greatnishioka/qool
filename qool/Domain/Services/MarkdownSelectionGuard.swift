@@ -25,7 +25,7 @@ nonisolated struct MarkdownSelectionGuard {
         avoiding hidden: [NSRange],
         length: Int
     ) -> NSRange {
-        let range = Self.clamped(proposed, length: length)
+        let range = proposed.clamped(toLength: length)
 
         guard !hidden.isEmpty else {
             return range
@@ -87,11 +87,5 @@ nonisolated struct MarkdownSelectionGuard {
     /// **端は含みません。** 記法のちょうど手前や直後は、切っていないので許します。
     private static func isInside(_ location: Int, _ range: NSRange) -> Bool {
         location > range.location && location < range.location + range.length
-    }
-
-    private static func clamped(_ range: NSRange, length: Int) -> NSRange {
-        let location = min(max(0, range.location), length)
-
-        return NSRange(location: location, length: min(max(0, range.length), length - location))
     }
 }

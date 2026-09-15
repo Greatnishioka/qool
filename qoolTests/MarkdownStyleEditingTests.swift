@@ -171,6 +171,35 @@ struct MarkdownStyleEditingTests {
         #expect((outer?.greenComponent ?? 1) < 0.1)
     }
 
+    // MARK: - 記法を切らない
+
+    /// **記法の途中を選んで押しても壊しません。**
+    /// 見えている記法（カーソルのあるブロック）は選べてしまうので、
+    /// 書式を付ける側で正します。
+    @Test func タグの途中を選んでも壊れない() {
+        let markdown = "<span style=\"color:#ff0000\">あか</span>"
+        // 開きタグの途中まで選んだ状態。
+        let result = applyColor(markdown, selection: NSRange(location: 0, length: 11), color: blue)
+
+        #expect(result.markdown == markdown)
+    }
+
+    @Test func 記号の途中を選んで太字にしても壊れない() {
+        let markdown = "あ**太字**い"
+        // `*` 1 つだけを選んだ状態。
+        let result = toggle(markdown, selection: NSRange(location: 1, length: 1), style: .strong)
+        let hasBrokenMarker = result.markdown.contains("***")
+
+        #expect(!hasBrokenMarker)
+    }
+
+    @Test func 記法にかからない選択はそのまま効く() {
+        let markdown = "<span style=\"color:#ff0000\">あかい</span>"
+        let result = toggle(markdown, selection: range(markdown, "あか"), style: .strong)
+
+        #expect(result.markdown.contains("**あか**"))
+    }
+
     @Test func 色の指定は6桁で書き出す() {
         let hex = ApplyMarkdownColorUseCase.hex(RGBAComponents(red: 1, green: 0.5, blue: 0))
 

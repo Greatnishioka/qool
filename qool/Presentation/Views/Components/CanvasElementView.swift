@@ -21,15 +21,8 @@ struct CanvasElementView: View {
     /// 縁に中間の被覆率を持てるので、輪郭で抜くよりなめらかになります。
     /// まだ切り抜いていない要素や、マスクを読めなかった要素では `nil` です。
     var drawingMask: CutoutDrawingMask?
-    /// 本文を書き換えられる状態か。**表示だけのときは入力を受け取りません。**
-    var isEditingText = false
-    /// 本文の書き換え先。渡さなければ表示だけになります。
-    var onTextChange: ((String) -> Void)?
-    var onEndEditingText: (() -> Void)?
-    /// 本文の選択。**書式の道具を出す場所**の判断に使います。
-    var textSelection: Binding<NSRange> = .constant(NSRange(location: 0, length: 0))
-    /// 選択の場所を要素の中の座標で返します。
-    var onTextSelectionGeometry: ((CGRect?) -> Void)?
+    /// 本文を書き換えるための持ち回り。**渡さなければ表示だけ**になります。
+    var textEditing: CanvasTextEditing?
 
     var body: some View {
         elementBody
@@ -43,7 +36,7 @@ struct CanvasElementView: View {
             .position(x: element.frame.midX, y: element.frame.midY)
             // **書き換えている間だけ入力を受け取ります。** 常に受け取ると、
             // 背景の 1 つのジェスチャに集約している選択と移動が効かなくなります。
-            .allowsHitTesting(isEditingText)
+            .allowsHitTesting(textEditing?.isEditing ?? false)
     }
 
     @ViewBuilder
@@ -78,14 +71,14 @@ struct CanvasElementView: View {
             MarkdownTextEditor(
                 text: Binding(
                     get: { element.text },
-                    set: { onTextChange?($0) }
+                    set: { textEditing?.onChange($0) }
                 ),
-                selection: textSelection,
-                isEditing: isEditingText,
+                selection: textEditing?.selection ?? .constant(NSRange(location: 0, length: 0)),
+                isEditing: textEditing?.isEditing ?? false,
                 font: Self.bodyFont,
                 textColor: NSColor(element.strokeColor.swiftUIColor),
-                onEndEditing: { onEndEditingText?() },
-                onSelectionGeometry: { onTextSelectionGeometry?($0) }
+                onEndEditing: { textEditing?.onEndEditing() },
+                onSelectionGeometry: { textEditing?.onSelectionGeometry($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(element.fillColor.swiftUIColor)

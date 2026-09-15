@@ -13,7 +13,12 @@ nonisolated struct ToggleInlineMarkdownStyleUseCase {
         let selection: NSRange
     }
 
-    init() {}
+    private let parser: any MarkdownParserProtocol
+    private let selectionGuard = MarkdownSelectionGuard()
+
+    init(parser: any MarkdownParserProtocol = SwiftMarkdownParserInfrastructure()) {
+        self.parser = parser
+    }
 
     func callAsFunction(
         _ markdown: String,
@@ -23,7 +28,16 @@ nonisolated struct ToggleInlineMarkdownStyleUseCase {
         let source = markdown as NSString
         let delimiter = style.delimiter
         let length = (delimiter as NSString).length
-        let range = Self.content(Self.clamped(selection, in: source), delimiter: delimiter, in: source)
+        guard let corrected = MarkdownSyntaxBoundary.selection(
+            selection,
+            in: markdown,
+            parser: parser,
+            guard: selectionGuard
+        ) else {
+            return Result(markdown: markdown, selection: selection.clamped(toLength: source.length))
+        }
+
+        let range = Self.content(corrected, delimiter: delimiter, in: source)
 
         let marker = (delimiter as NSString).character(at: 0)
         let run = min(
@@ -95,11 +109,5 @@ nonisolated struct ToggleInlineMarkdownStyleUseCase {
         }
 
         return count
-    }
-
-    static func clamped(_ range: NSRange, in source: NSString) -> NSRange {
-        let location = min(max(0, range.location), source.length)
-
-        return NSRange(location: location, length: min(range.length, source.length - location))
     }
 }

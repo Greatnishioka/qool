@@ -78,17 +78,17 @@ struct MarkdownNewlineTests {
         )
     }
 
-    /// **箇条書きは項目まで降ります。** リスト全体を単位にすると、
-    /// 1 つ直すだけで `- ` が一斉に現れて読めなくなります。
-    @Test func 箇条書きは項目ごとに記法が出る() {
+    /// **箇条書きの記号は、どの項目にカーソルがあっても見えます。**
+    /// 潰すとただの段落に見えてしまうので、隠す対象から外しています。
+    @Test func 箇条書きの記号はどの項目でも見える() {
         let markdown = "- ひとつ\n- ふたつ"
         let t = editing(markdown, caretAt: "ひとつ")
         let first = font(t, at: 0)?.pointSize ?? 0
         let secondIndex = (markdown as NSString).range(of: "- ふたつ").location
-        let second = font(t, at: secondIndex)?.pointSize ?? 99
+        let second = font(t, at: secondIndex)?.pointSize ?? 0
 
         #expect(first > 1)
-        #expect(second < 1)
+        #expect(second > 1)
     }
 
     @Test func 改行を挟んでも本文は変わらない() {
