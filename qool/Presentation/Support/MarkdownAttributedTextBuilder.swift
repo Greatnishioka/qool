@@ -17,11 +17,11 @@ nonisolated struct MarkdownAttributedTextBuilder {
 
     /// - Parameter selection: 今の選択。**ここと重なるブロックだけ記法を見せます。**
     ///   編集していないときは `nil` を渡すと、どこも見せません。
-    func attributedString(
+    func decoration(
         markdown: String,
         selection: NSRange?,
         style: RichTextStyle
-    ) -> NSAttributedString {
+    ) -> MarkdownDecoration {
         let source = markdown as NSString
         let full = NSRange(location: 0, length: source.length)
         let result = NSMutableAttributedString(string: markdown)
@@ -33,20 +33,49 @@ nonisolated struct MarkdownAttributedTextBuilder {
 
         // **記法は最後に当てます。** 先に当てると、太字や見出しの書体で
         // 潰した大きさが戻ってしまいます。
-        for span in spans where span.kind != .syntax {
-            let attributes = style.attributes(for: span.kind, base: baseFont(at: span.range, in: result, style: style))
+        // **広い範囲から順に当てます。** あとから当てたほうが勝つので、
+        // 見つけた順のままだと**入れ子の内側が外側に塗り潰されます**
+        // （赤で囲った中を青で囲っても赤になっていました）。
+        // 広い順にすれば、狭いほう＝内側が最後に当たって勝ちます。
+        let ordered = spans
+            .filter { $0.kind != .syntax }
+            .sorted { $0.range.length > $1.range.length }
+
+        for span in ordered {
+            let attributes = style.attributes(
+                for: span.kind,
+                base: baseFont(at: span.range, in: result, style: style)
+            )
             result.addAttributes(attributes, range: span.range)
         }
 
+        var hidden: [NSRange] = []
+
         for span in spans where span.kind == .syntax {
-            let isVisible = active.map { NSIntersectionRange($0, span.range).length > 0 || $0.location == span.range.location } ?? false
+            let isVisible = active.map {
+                NSIntersectionRange($0, span.range).length > 0 || $0.location == span.range.location
+            } ?? false
+
+            if !isVisible {
+                hidden.append(span.range)
+            }
+
             result.addAttributes(
                 isVisible ? style.visibleSyntaxAttributes() : style.hiddenSyntaxAttributes(),
                 range: span.range
             )
         }
 
-        return result
+        return MarkdownDecoration(text: result, hiddenSyntaxRanges: hidden)
+    }
+
+    /// 文字列だけが要るとき。**テストと、装飾を当てるところから使います。**
+    func attributedString(
+        markdown: String,
+        selection: NSRange?,
+        style: RichTextStyle
+    ) -> NSAttributedString {
+        decoration(markdown: markdown, selection: selection, style: style).text
     }
 
     /// 記法を見せる範囲。**ソース上の段落**で切ります。

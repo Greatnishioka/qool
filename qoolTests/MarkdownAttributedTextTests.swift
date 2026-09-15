@@ -65,6 +65,20 @@ struct MarkdownAttributedTextTests {
         #expect((components?.blueComponent ?? 1) < 0.01)
     }
 
+    /// **内側が勝ちます。** HTML と同じで、狭いほうがあとから当たります。
+    @Test func 入れ子の色は内側が勝つ() {
+        let markdown = "<span style=\"color:#ff0000\">そと<span style=\"color:#0000ff\">なか</span></span>"
+        let text = decorated(markdown)
+        let inner = (markdown as NSString).range(of: "なか").location
+        let outer = (markdown as NSString).range(of: "そと").location
+        let innerColor = color(text, at: inner)?.usingColorSpace(.sRGB)
+        let outerColor = color(text, at: outer)?.usingColorSpace(.sRGB)
+
+        #expect((innerColor?.blueComponent ?? 0) > 0.9)
+        #expect((innerColor?.redComponent ?? 1) < 0.1)
+        #expect((outerColor?.redComponent ?? 0) > 0.9)
+    }
+
     @Test func 太字の中の斜体は両方かかる() {
         let markdown = "**太字の中の*斜体***"
         let text = decorated(markdown)

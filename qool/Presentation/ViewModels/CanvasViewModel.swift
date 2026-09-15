@@ -27,6 +27,11 @@ final class CanvasViewModel: ObservableObject {
     /// テキストが常に入力を取ると選択も移動もできなくなるため、
     /// **ダブルクリックで入り、Esc か外側のクリックで抜ける**形にしました。
     @Published private(set) var editingTextElementID: CanvasElement.ID?
+    /// 書き換え中の本文の選択。**道具から書式を付けるときの対象**です。
+    @Published var textSelection = NSRange(location: 0, length: 0)
+    /// 選択のある行の位置（要素の中の座標）。**道具をここへ浮かせます。**
+    /// 選んでいない間は `nil` で、道具を出しません。
+    @Published private(set) var textSelectionRect: CGRect?
 
     private var pathDraftPoints: [CGPoint] = []
     private let selectionService: CanvasSelectionService
@@ -34,6 +39,8 @@ final class CanvasViewModel: ObservableObject {
     private let moveElementsUseCase: MoveCanvasElementsUseCase
     private let deleteElementsUseCase: DeleteCanvasElementsUseCase
     private let updateElementUseCase: UpdateCanvasElementUseCase
+    private let toggleInlineStyleUseCase = ToggleInlineMarkdownStyleUseCase()
+    private let applyColorUseCase = ApplyMarkdownColorUseCase()
     private let unionElementsUseCase: UnionCanvasElementsUseCase
     private let reorderElementsUseCase: ReorderCanvasElementsUseCase
     private let resizeElementUseCase = ResizeCanvasElementUseCase()
@@ -746,12 +753,57 @@ final class CanvasViewModel: ObservableObject {
         return true
     }
 
+    func updateTextSelectionRect(_ rect: CGRect?) {
+        guard textSelectionRect != rect else {
+            return
+        }
+
+        textSelectionRect = rect
+    }
+
+    /// 選んだ範囲の書式を付け外しする。
+    ///
+    /// **書き換えるのは本文の文字列だけです。** 選択も一緒に戻すので、
+    /// 続けて別の書式を重ねられます。
+    func applyInlineStyle(_ style: InlineMarkdownStyle) {
+        applyTextEdit { markdown, selection in
+            let result = toggleInlineStyleUseCase(markdown, selection: selection, style: style)
+
+            return (result.markdown, result.selection)
+        }
+    }
+
+    func applyTextColor(_ color: RGBAComponents?) {
+        applyTextEdit { markdown, selection in
+            let result = applyColorUseCase(markdown, selection: selection, color: color)
+
+            return (result.markdown, result.selection)
+        }
+    }
+
+    private func applyTextEdit(_ edit: (String, NSRange) -> (String, NSRange)) {
+        guard let elementID = editingTextElementID,
+              let element = memo.canvas.elements.first(where: { $0.id == elementID }) else {
+            return
+        }
+
+        let (markdown, selection) = edit(element.text, textSelection)
+
+        guard markdown != element.text else {
+            return
+        }
+
+        updateText(markdown, of: elementID)
+        textSelection = selection
+    }
+
     func endEditingText() {
         guard editingTextElementID != nil else {
             return
         }
 
         editingTextElementID = nil
+        textSelectionRect = nil
     }
 
     /// 本文を書き換える。**編集中の要素へ直に書きます。** 選択に依らせると、

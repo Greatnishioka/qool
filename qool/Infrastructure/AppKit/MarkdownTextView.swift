@@ -15,6 +15,12 @@ final class MarkdownTextView: NSTextView {
     /// 変換の状態が変わった。**変換中は外へ文字を出せない**ので、境目を知る必要があります。
     var onCompositionChange: (() -> Void)?
 
+    /// 幅を潰して見えなくした記法の範囲。
+    ///
+    /// **キャレットと選択をここへ入れないために持ちます。** 文字としては残っているので、
+    /// 放っておくと見えないタグが選択に入り、書式を付けたときに本文が壊れます。
+    var hiddenSyntaxRanges: [NSRange] = []
+
     /// 直近に使った表示の決まりごと。**選択が動いたときに当て直すために持ちます。**
     /// 通知からは `NSTextView` しか辿れないので、ここに置くほかありません。
     var currentStyle = RichTextStyle(
@@ -26,6 +32,7 @@ final class MarkdownTextView: NSTextView {
     /// 弱い参照なので、組み立てた場所を出た時点で入れ物が消え、
     /// **警告も出さずに TextKit 1 へ落ちます**（段階 0 で踏みました）。
     private var contentStorage: NSTextContentStorage?
+    private let selectionGuard = MarkdownSelectionGuard()
 
     /// TextKit 2 で組み立てる。
     ///
@@ -69,6 +76,71 @@ final class MarkdownTextView: NSTextView {
     override func unmarkText() {
         super.unmarkText()
         onCompositionChange?()
+    }
+
+    /// 選択のある行の矩形。**道具を浮かせる場所**に使います。
+    ///
+    /// **文字単位ではなく行で返します。** 道具は選択の上に出すので、
+    /// 行の高さが分かれば足ります。
+    func selectionLineRect() -> CGRect? {
+        guard let layoutManager = textLayoutManager,
+              let contentManager = layoutManager.textContentManager,
+              let location = contentManager.location(
+                  contentManager.documentRange.location,
+                  offsetBy: selectedRange().location
+              ),
+              let fragment = layoutManager.textLayoutFragment(for: location) else {
+            return nil
+        }
+
+        return fragment.layoutFragmentFrame.offsetBy(
+            dx: textContainerOrigin.x,
+            dy: textContainerOrigin.y
+        )
+    }
+
+    // MARK: - 削除
+
+    /// **記法は丸ごと消します。** `**太字**` の後ろで 1 文字消すと `**太字*` になり、
+    /// 太字でもなくなったうえに記号だけが残ります。
+    override func deleteBackward(_ sender: Any?) {
+        let selected = selectedRange()
+        let target = selected.length > 0
+            ? selected
+            : NSRange(location: max(0, selected.location - 1), length: min(1, selected.location))
+
+        guard !deleteMergingSyntax(target) else {
+            return
+        }
+
+        super.deleteBackward(sender)
+    }
+
+    override func deleteForward(_ sender: Any?) {
+        let selected = selectedRange()
+        let target = selected.length > 0
+            ? selected
+            : NSRange(location: selected.location, length: min(1, string.utf16.count - selected.location))
+
+        guard !deleteMergingSyntax(target) else {
+            return
+        }
+
+        super.deleteForward(sender)
+    }
+
+    /// 記法にかかっていれば、その記法ごと消す。消したら `true`。
+    private func deleteMergingSyntax(_ target: NSRange) -> Bool {
+        let merged = selectionGuard.deletion(target, avoiding: hiddenSyntaxRanges)
+
+        guard merged != target, merged.length > 0, shouldChangeText(in: merged, replacementString: "") else {
+            return false
+        }
+
+        textStorage?.replaceCharacters(in: merged, with: "")
+        didChangeText()
+
+        return true
     }
 
     override func cancelOperation(_ sender: Any?) {

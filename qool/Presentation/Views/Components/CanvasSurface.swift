@@ -49,6 +49,7 @@ struct CanvasSurface: View {
                 unionSourceLayer
                 marqueeLayer
                 draftLayer
+                toolbarLayer
             }
             .clipShape(Rectangle())
             .onGeometryChange(for: CGSize.self) { $0.size } action: { canvasSize = $0 }
@@ -77,7 +78,9 @@ struct CanvasSurface: View {
                 drawingMask: viewModel.drawingMask(for: element),
                 isEditingText: viewModel.editingTextElementID == element.id,
                 onTextChange: { viewModel.updateText($0, of: element.id) },
-                onEndEditingText: { viewModel.endEditingText() }
+                onEndEditingText: { viewModel.endEditingText() },
+                textSelection: $viewModel.textSelection,
+                onTextSelectionGeometry: { viewModel.updateTextSelectionRect($0) }
             )
             .offset(dragOffset(for: element.id))
         }
@@ -94,6 +97,26 @@ struct CanvasSurface: View {
             .opacity(selectedUnionSourceID == sourceElement.id ? 0.62 : 0.34)
             .offset(unionSourceOffset(for: sourceElement.id))
             .allowsHitTesting(false)
+        }
+    }
+
+    /// 書式の道具。**選んだ範囲の上に浮かせます。**
+    ///
+    /// **要素の中ではなくキャンバスへ置きます。** 要素に重ねると、回転や切り抜きの
+    /// 影響を受けて道具まで傾きます。
+    @ViewBuilder
+    private var toolbarLayer: some View {
+        if let elementID = viewModel.editingTextElementID,
+           let element = elements.first(where: { $0.id == elementID }),
+           let rect = viewModel.textSelectionRect {
+            RichTextToolbar(
+                onStyle: { viewModel.applyInlineStyle($0) },
+                onColor: { viewModel.applyTextColor($0) }
+            )
+            .position(
+                x: element.frame.minX + rect.midX,
+                y: max(16, element.frame.minY + rect.minY - 18)
+            )
         }
     }
 

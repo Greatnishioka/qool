@@ -26,6 +26,10 @@ struct CanvasElementView: View {
     /// 本文の書き換え先。渡さなければ表示だけになります。
     var onTextChange: ((String) -> Void)?
     var onEndEditingText: (() -> Void)?
+    /// 本文の選択。**書式の道具を出す場所**の判断に使います。
+    var textSelection: Binding<NSRange> = .constant(NSRange(location: 0, length: 0))
+    /// 選択の場所を要素の中の座標で返します。
+    var onTextSelectionGeometry: ((CGRect?) -> Void)?
 
     var body: some View {
         elementBody
@@ -76,10 +80,12 @@ struct CanvasElementView: View {
                     get: { element.text },
                     set: { onTextChange?($0) }
                 ),
+                selection: textSelection,
                 isEditing: isEditingText,
                 font: Self.bodyFont,
                 textColor: NSColor(element.strokeColor.swiftUIColor),
-                onEndEditing: { onEndEditingText?() }
+                onEndEditing: { onEndEditingText?() },
+                onSelectionGeometry: { onTextSelectionGeometry?($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(element.fillColor.swiftUIColor)
