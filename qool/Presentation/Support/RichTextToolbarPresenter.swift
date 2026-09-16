@@ -21,7 +21,7 @@ final class RichTextToolbarPresenter {
 
     /// 起動時に一度だけ呼びます。
     func start() {
-        observer = viewModel.$richTextToolbar.sink { [weak self] request in
+        observer = viewModel.richTextToolbar.sink { [weak self] request in
             self?.apply(request)
         }
     }

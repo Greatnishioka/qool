@@ -25,28 +25,55 @@ final class RichTextToolbarPanelManager {
         let panel = panel ?? makePanel()
         self.panel = panel
 
-        // **中身は毎回作り直します。** 押されたときの行き先は編集している要素ごとに
-        // 変わるので、使い回すと前の要素へ書式が当たります。
-        let hostingView = NSHostingView(rootView: content.padding(Self.shadowInset))
-        panel.contentView = hostingView
-
+        // **型を消して持ちます。** `padding` を付けた型は名前を書けないので、
+        // 作り直さずに中身だけ差し替えるにはこれが要ります。
+        let hostingView = hostingView(in: panel, showing: AnyView(content.padding(Self.shadowInset)))
         let size = hostingView.fittingSize
-
-        panel.setFrame(
-            NSRect(
-                origin: placement.origin(
-                    for: selectionRect,
-                    panelSize: size,
-                    within: visibleFrame(containing: selectionRect)
-                ),
-                size: size
+        let frame = NSRect(
+            origin: placement.origin(
+                for: selectionRect,
+                panelSize: size,
+                within: visibleFrame(containing: selectionRect)
             ),
-            display: true
+            size: size
         )
+
+        // **同じ場所なら動かしません。** `setFrame` は 1 回 6ms ほどかかります（実機で計測）。
+        // スクロール中は毎フレーム通るので効きます。
+        if panel.frame != frame {
+            // **`display: false` です。** `true` はその場で描き直しを強制するので、
+            // AppKit のまとめ描きが効きません。
+            panel.setFrame(frame, display: false)
+        }
+
+        guard !panel.isVisible else {
+            return
+        }
 
         // **`orderFrontRegardless` です。** `makeKeyAndOrderFront` だと、
         // 出した瞬間に書いている場所から入力権が離れます。
         panel.orderFrontRegardless()
+    }
+
+    /// 道具を載せるビュー。**作り直さず、中身だけ差し替えます。**
+    ///
+    /// `contentView` に代入し直すと 1 回 4ms ほどかかります（実機で計測）。
+    /// スクロール中は毎フレーム通るので、これだけで体感が変わります。
+    /// [FloatingMemoWindowManager.update](FloatingMemoWindowManager.swift) と同じ考えです。
+    private func hostingView(
+        in panel: RichTextToolbarPanel,
+        showing rootView: AnyView
+    ) -> NSHostingView<AnyView> {
+        if let existing = panel.contentView as? NSHostingView<AnyView> {
+            existing.rootView = rootView
+
+            return existing
+        }
+
+        let created = NSHostingView(rootView: rootView)
+        panel.contentView = created
+
+        return created
     }
 
     func hide() {

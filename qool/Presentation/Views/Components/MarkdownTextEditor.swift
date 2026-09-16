@@ -282,9 +282,13 @@ struct MarkdownTextEditor: NSViewRepresentable {
         private func publishSelectionGeometry(from textView: MarkdownTextView) {
             guard textView.isEditable,
                   !textView.isComposing,
-                  textView.selectedRange().length > 0,
-                  let rect = textView.selectionLineRect(),
-                  let window = textView.window else {
+                  textView.selectedRange().length > 0 else {
+                onSelectionGeometry(nil)
+
+                return
+            }
+
+            guard let rect = textView.selectionLineRect(), let window = textView.window else {
                 onSelectionGeometry(nil)
 
                 return
@@ -309,7 +313,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
             // `NSClipView` は既定で境界の変化を通知します。
             center.addObserver(
                 self,
-                selector: #selector(geometryDidChange),
+                selector: #selector(geometryDidChange(_:)),
                 name: NSView.boundsDidChangeNotification,
                 object: scrollView.contentView
             )
@@ -317,20 +321,26 @@ struct MarkdownTextEditor: NSViewRepresentable {
             // 出し直す側で見ます（別の窓が動いても、出し直すだけで害はありません）。
             center.addObserver(
                 self,
-                selector: #selector(geometryDidChange),
+                selector: #selector(geometryDidChange(_:)),
                 name: NSWindow.didMoveNotification,
                 object: nil
             )
             center.addObserver(
                 self,
-                selector: #selector(geometryDidChange),
+                selector: #selector(geometryDidChange(_:)),
                 name: NSWindow.didResizeNotification,
                 object: nil
             )
         }
 
-        @objc private func geometryDidChange() {
+        @objc private func geometryDidChange(_ notification: Notification) {
             guard let textView else {
+                return
+            }
+
+            // **自分の窓以外は無視します。** 道具のパネルも窓なので、位置を合わせるたびに
+            // 移動の通知を出します。拾うと出し直しが往復し、要素の数だけ増えます。
+            if let window = notification.object as? NSWindow, window !== textView.window {
                 return
             }
 

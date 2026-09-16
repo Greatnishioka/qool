@@ -25,7 +25,13 @@ final class AppRootViewModel: ObservableObject {
     /// 道具は別のウィンドウに出すので、アプリに 1 つしかない置き場が要ります。
     /// `CanvasViewModel` は `CanvasView` の中で作られて貼ったメモ側から触れないため、
     /// **両方が握っているここを通します**（[#21](https://github.com/Greatnishioka/qool/issues/21)）。
-    @Published private(set) var richTextToolbar: RichTextToolbarRequest?
+    /// **`@Published` にしません。** 選択の位置はスクロール中に毎フレーム変わります。
+    /// `AppRootViewModel` を監視している画面（一覧・メニューバー・キャンバスの窓）が
+    /// そのたびに再評価され、**キャンバス全体が描き直されます**（実機で計測しました）。
+    ///
+    /// 受け取るのは画面ではなく [RichTextToolbarPresenter](../Support/RichTextToolbarPresenter.swift)
+    /// だけなので、`objectWillChange` を鳴らさない経路で流します。
+    let richTextToolbar = CurrentValueSubject<RichTextToolbarRequest?, Never>(nil)
 
     /// 今その道具を出している主。
     ///
@@ -263,13 +269,13 @@ final class AppRootViewModel: ObservableObject {
             }
 
             richTextToolbarOwner = nil
-            richTextToolbar = nil
+            richTextToolbar.send(nil)
 
             return
         }
 
         richTextToolbarOwner = owner
-        richTextToolbar = request
+        richTextToolbar.send(request)
     }
 
     /// 保留している書き込みを確定する。**アプリ終了時に必ず呼んでください。**

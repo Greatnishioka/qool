@@ -82,25 +82,42 @@ final class MarkdownTextView: NSTextView {
         onCompositionChange?()
     }
 
-    /// 選択のある行の矩形。**道具を浮かせる場所**に使います。
+    /// 選択の始まりがある行の矩形。**道具を浮かせる場所**に使います。
     ///
-    /// **文字単位ではなく行で返します。** 道具は選択の上に出すので、
-    /// 行の高さが分かれば足ります。
+    /// **`textLayoutFragment` は使えません。** TextKit 2 の layout fragment は
+    /// 行ではなく**段落 1 つ分**なので、折り返しの多い段落では
+    /// **選んだ行ではなく段落の先頭の矩形**が返ります。道具が本文のはるか上に出ます
+    /// （[#21](https://github.com/Greatnishioka/qool/issues/21) の段階 5 で踏みました）。
+    ///
+    /// **最初の断片だけ取ります。** 複数行を選んだときは、選び始めた行の上に出します。
     func selectionLineRect() -> CGRect? {
         guard let layoutManager = textLayoutManager,
-              let contentManager = layoutManager.textContentManager,
-              let location = contentManager.location(
-                  contentManager.documentRange.location,
-                  offsetBy: selectedRange().location
-              ),
-              let fragment = layoutManager.textLayoutFragment(for: location) else {
+              let contentManager = layoutManager.textContentManager else {
             return nil
         }
 
-        return fragment.layoutFragmentFrame.offsetBy(
-            dx: textContainerOrigin.x,
-            dy: textContainerOrigin.y
-        )
+        let selected = selectedRange()
+        let documentStart = contentManager.documentRange.location
+
+        guard let start = contentManager.location(documentStart, offsetBy: selected.location),
+              let end = contentManager.location(documentStart, offsetBy: selected.location + selected.length),
+              let range = NSTextRange(location: start, end: end) else {
+            return nil
+        }
+
+        var firstSegment: CGRect?
+
+        layoutManager.enumerateTextSegments(in: range, type: .standard) { _, frame, _, _ in
+            firstSegment = frame
+
+            return false
+        }
+
+        guard let firstSegment else {
+            return nil
+        }
+
+        return firstSegment.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
     }
 
     // MARK: - 削除
