@@ -64,6 +64,21 @@ final class FloatingMemoWindowManager: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    /// 本文を書き換えるために、アプリごと前面へ出す。
+    ///
+    /// **`LSUIElement` のアプリは、ウィンドウを押しても前面に出ません。**
+    /// キーウィンドウにはなるのでキャレットは出ますが、**アプリが非アクティブのままだと
+    /// 入力メソッドが文字を渡してきません。** 日本語の変換候補が画面の隅に出たまま、
+    /// 確定しても本文に何も入らない状態になります（実機で踏みました）。
+    func activate(_ memoID: Memo.ID) {
+        guard let window = windows[memoID] else {
+            return
+        }
+
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+    }
+
     func close(_ memoID: Memo.ID) {
         moveHandlers.removeValue(forKey: memoID)
 

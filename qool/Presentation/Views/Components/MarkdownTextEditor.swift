@@ -16,7 +16,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
     var font: NSFont
     var textColor: NSColor
     var onEndEditing: () -> Void
-    /// 選択が動いた。**道具を浮かせる場所**を要素の中の座標で渡します。
+    /// 選択が動いた。**道具を浮かせる場所**を画面座標で渡します。
     var onSelectionGeometry: (CGRect?) -> Void = { _ in }
 
     private let sync = MarkdownEditingSync()
@@ -64,6 +64,8 @@ struct MarkdownTextEditor: NSViewRepresentable {
         // **重ねる形にします。** 「スクロールバーを常に表示」の設定だと、
         // 帯がずっと出たままになり、枠なしのメモに四角い線が乗ります。
         scrollView.scrollerStyle = .overlay
+
+        context.coordinator.observeGeometry(of: textView, in: scrollView)
 
         return scrollView
     }
@@ -125,7 +127,16 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     /// 外から来た選択を合わせる。**道具で書式を付けたあとに戻ってきます。**
+    ///
+    /// **書き換えているビューにだけ当てます。** 表示だけのビューにも当てると、
+    /// 選択の持ち回りを 1 つ共有している貼ったメモで、**1 文字打つたびに
+    /// 隣の要素の選択が動きます。** 入力メソッドが相手を見失い、
+    /// 変換が返ってこなくなります（実機の記録で確認しました）。
     private func applyExternalSelection(to textView: MarkdownTextView, context: Context) {
+        guard isEditing else {
+            return
+        }
+
         let current = textView.selectedRange()
         let wanted = sync.preservedSelection(selection, in: textView.string)
 
@@ -145,8 +156,14 @@ struct MarkdownTextEditor: NSViewRepresentable {
     /// **入力を受け取る役は次の間合いで渡します。** 描画の最中に
     /// `makeFirstResponder` を呼ぶと、その場で走る再描画と噛み合いません。
     private func applyEditability(to textView: MarkdownTextView) {
-        textView.isEditable = isEditing
-        textView.isSelectable = isEditing
+        // **同じ値でも代入し直してはいけません。** `isEditable` の setter は
+        // 入力コンテキストに触るため、`updateNSView` のたびに入れ直すと、
+        // **変換を確定した直後から入力が一切通らなくなります。**
+        // `font` の setter で同じ罠を踏んでいます（このファイルの下の注記）。
+        if textView.isEditable != isEditing {
+            textView.isEditable = isEditing
+            textView.isSelectable = isEditing
+        }
 
         let isFocused = textView.window?.firstResponder === textView
 
@@ -174,6 +191,9 @@ struct MarkdownTextEditor: NSViewRepresentable {
         var onSelectionGeometry: (CGRect?) -> Void = { _ in }
         /// 直前に外へ出した選択。**返ってきたものを当て直さない**ために覚えます。
         private(set) var lastPublishedSelection: NSRange?
+
+        /// 位置を出し直す相手。**通知からは辿れない**ので持ちます。
+        private weak var textView: MarkdownTextView?
 
         /// 直近の見た目。**選択が動いたときに当て直すために持ちます。**
         /// 通知からは `NSTextView` しか辿れないので、こちらで覚えておきます。
@@ -252,12 +272,79 @@ struct MarkdownTextEditor: NSViewRepresentable {
                 selection.wrappedValue = range
             }
 
-            guard range.length > 0, let rect = textView.selectionLineRect() else {
+            publishSelectionGeometry(from: textView)
+        }
+
+        /// 選択の位置だけを外へ出す。
+        ///
+        /// **画面座標へ直して出します。** 道具は別のウィンドウに浮かぶので、
+        /// 要素の中の座標では置き場所を決められません。
+        private func publishSelectionGeometry(from textView: MarkdownTextView) {
+            guard textView.isEditable,
+                  !textView.isComposing,
+                  textView.selectedRange().length > 0 else {
                 onSelectionGeometry(nil)
+
                 return
             }
 
-            onSelectionGeometry(textView.convert(rect, to: textView.enclosingScrollView))
+            guard let rect = textView.selectionLineRect(), let window = textView.window else {
+                onSelectionGeometry(nil)
+
+                return
+            }
+
+            onSelectionGeometry(window.convertToScreen(textView.convert(rect, to: nil)))
+        }
+
+        /// 本文が画面上で動いたら、道具の位置を出し直す。
+        ///
+        /// **選択が動いたときだけでは足りません。** 道具は別のウィンドウなので、
+        /// 本文をスクロールしたり窓を動かしたりすると、**選択はそのままでも
+        /// 画面上の位置が変わり、道具だけ元の場所に取り残されます。**
+        ///
+        /// **閉包ではなく `@objc` で受けます。** `NotificationCenter` の閉包は
+        /// `@Sendable` なので、`NSTextView` も `Coordinator` も捕まえられません。
+        func observeGeometry(of textView: MarkdownTextView, in scrollView: NSScrollView) {
+            self.textView = textView
+
+            let center = NotificationCenter.default
+
+            // `NSClipView` は既定で境界の変化を通知します。
+            center.addObserver(
+                self,
+                selector: #selector(geometryDidChange(_:)),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView
+            )
+            // **窓はまだ決まっていないので、送り主を絞れません。** 自分の窓かどうかは
+            // 出し直す側で見ます（別の窓が動いても、出し直すだけで害はありません）。
+            center.addObserver(
+                self,
+                selector: #selector(geometryDidChange(_:)),
+                name: NSWindow.didMoveNotification,
+                object: nil
+            )
+            center.addObserver(
+                self,
+                selector: #selector(geometryDidChange(_:)),
+                name: NSWindow.didResizeNotification,
+                object: nil
+            )
+        }
+
+        @objc private func geometryDidChange(_ notification: Notification) {
+            guard let textView else {
+                return
+            }
+
+            // **自分の窓以外は無視します。** 道具のパネルも窓なので、位置を合わせるたびに
+            // 移動の通知を出します。拾うと出し直しが往復し、要素の数だけ増えます。
+            if let window = notification.object as? NSWindow, window !== textView.window {
+                return
+            }
+
+            publishSelectionGeometry(from: textView)
         }
 
         /// 装飾を当て直す。

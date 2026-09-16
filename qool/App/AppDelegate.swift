@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// デスクトップに貼ったメモ。**遅延生成なのは `viewModel` に依存するためです。**
     private(set) lazy var floatingMemos = FloatingMemoPresenter(viewModel: viewModel)
 
+    /// 書式の道具。**アプリに 1 つだけです。** キャンバスと貼ったメモで同時に出ると、
+    /// どちらの選択に効くのか分からなくなります。
+    private(set) lazy var richTextToolbar = RichTextToolbarPresenter(viewModel: viewModel)
+
     private(set) lazy var hotKeys = HotKeyCoordinator(
         viewModel: viewModel,
         floatingMemos: floatingMemos,
@@ -32,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 前回貼ってあったメモを貼り直し、ホットキーを登録します。
     func applicationDidFinishLaunching(_ notification: Notification) {
         floatingMemos.start()
+        richTextToolbar.start()
         hotKeys.start()
     }
 
