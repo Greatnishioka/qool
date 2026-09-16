@@ -86,14 +86,23 @@ struct PersistenceIntegrationTests {
 
     private enum TestError: Error { case failed }
 
-    /// リトライのバックオフ（500ms + 1s）を待ち切れる長さ。
+    /// 再試行を待ち切れる長さ。
+    ///
+    /// **本番の待ち時間（500ms + 1s）は使いません。** `makeStack` で 1/100 に縮めています。
+    /// 実時間に頼ると、並列実行で CPU が埋まったときに落ちます
+    /// （[#18](https://github.com/Greatnishioka/qool/issues/18)）。
     private static let retryWindow = Duration.seconds(4)
 
     private func makeStack(
         interval: Duration = .milliseconds(20)
     ) -> (AppRootViewModel, DebouncedMemoRepositoryInfrastructure, ControllableRepository) {
         let base = ControllableRepository()
-        let debounced = DebouncedMemoRepositoryInfrastructure(wrapping: base, interval: interval)
+        let debounced = DebouncedMemoRepositoryInfrastructure(
+            wrapping: base,
+            interval: interval,
+            // 5ms → 10ms。**再試行の鎖が 15ms で終わる**ので、4 秒の余裕は十分です。
+            retryBackoff: .milliseconds(5)
+        )
         let viewModel = AppRootViewModel.bootstrap(repository: debounced, monitor: debounced)
 
         return (viewModel, debounced, base)

@@ -152,6 +152,32 @@ struct CutoutMaskStorageTests {
     }
 
     /// **元画像と同じ保管庫に置きます。** 保存の仕組みも掃除も使い回せます。
+    /// 描画に使う形が取り出せるまで待つ。
+    ///
+    /// **`NSCache` は入れたものが残る保証をしません。** メモリが逼迫すれば随時捨てます。
+    /// `drawingMask` が `nil` を返すのは「まだ用意できていない」という**設計どおりの一時状態**で、
+    /// 呼び直せば裏で用意し直されます。入れた直後に必ず取れる前提で書くと、
+    /// **全体実行のときだけ不定期に落ちます**（[#18](https://github.com/Greatnishioka/qool/issues/18)）。
+    @MainActor
+    private func drawingMask(
+        from store: CutoutMaskStore,
+        for element: CanvasElement,
+        in memoID: Memo.ID,
+        timeout: Duration = .seconds(2)
+    ) async -> CutoutDrawingMask? {
+        let deadline = ContinuousClock.now + timeout
+
+        while ContinuousClock.now < deadline {
+            if let mask = store.drawingMask(for: element, in: memoID) {
+                return mask
+            }
+
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        return store.drawingMask(for: element, in: memoID)
+    }
+
     @Test func 保管庫へ保存して読み戻せる() async throws {
         try await withTemporaryRepository { repository in
             let memo = Memo(title: "マスク")
@@ -170,7 +196,7 @@ struct CutoutMaskStorageTests {
                 fillColor: .clear,
                 cutoutMask: reference
             )
-            #expect(store.drawingMask(for: element, in: memo.id) != nil)
+            #expect(await drawingMask(from: store, for: element, in: memo.id) != nil)
         }
     }
 

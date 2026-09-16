@@ -43,21 +43,30 @@ nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryPro
 
     /// 再試行の上限。到達しても内容は保持し、手動再試行で再開できます。
     private static let maximumAttempts = 3
-    /// 500ms → 1s → 2s。ローカルの単一書き込みなので jitter は不要です。
-    private static func backoff(afterAttempt attempt: Int) -> Duration {
-        .milliseconds(500 * (1 << (attempt - 1)))
-    }
-
     private let base: any MemoRepositoryProtocol
     private let interval: Duration
+
+    /// 再試行の待ち時間の起点。**倍々に伸ばします**（既定では 500ms → 1s → 2s）。
+    /// ローカルの単一書き込みなので jitter は不要です。
+    ///
+    /// **テストから縮められるようにしています。** 実時間を待つテストは、
+    /// 並列実行で CPU が埋まると前提が崩れ、**不定期に落ちます**
+    /// （[#18](https://github.com/Greatnishioka/qool/issues/18)）。
+    /// 固定値のままだと、待ち時間を延ばすいたちごっこになります。
+    private let retryBackoff: Duration
     private let state = Mutex(State())
 
     let writeStates: AsyncStream<MemoWriteState>
     private let stateContinuation: AsyncStream<MemoWriteState>.Continuation
 
-    init(wrapping base: any MemoRepositoryProtocol, interval: Duration = .milliseconds(500)) {
+    init(
+        wrapping base: any MemoRepositoryProtocol,
+        interval: Duration = .milliseconds(500),
+        retryBackoff: Duration = .milliseconds(500)
+    ) {
         self.base = base
         self.interval = interval
+        self.retryBackoff = retryBackoff
 
         // 状態の通知なので、取りこぼしよりも「最新だけ届く」ほうが正しい形です。
         let (stream, continuation) = AsyncStream.makeStream(
@@ -250,12 +259,16 @@ nonisolated final class DebouncedMemoRepositoryInfrastructure: MemoRepositoryPro
                     continue
                 case let .retry(attempt):
                     stateContinuation.yield(.retrying(attempt: attempt))
-                    try? await Task.sleep(for: Self.backoff(afterAttempt: attempt))
+                    try? await Task.sleep(for: backoff(afterAttempt: attempt))
                 case .exhausted:
                     return false
                 }
             }
         }
+    }
+
+    private func backoff(afterAttempt attempt: Int) -> Duration {
+        retryBackoff * (1 << (attempt - 1))
     }
 
     private func recordFailure(id: Memo.ID, revision: UInt64) -> FailureOutcome {
