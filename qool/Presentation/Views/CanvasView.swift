@@ -38,7 +38,10 @@ struct CanvasView: View {
                 memo: memo,
                 imageStore: rootViewModel.imageStore,
                 maskStore: rootViewModel.maskStore,
-                importImageUseCase: rootViewModel.importImageUseCase
+                importImageUseCase: rootViewModel.importImageUseCase,
+                onRichTextToolbar: { owner, request in
+                    rootViewModel.updateRichTextToolbar(request, from: owner)
+                }
             ) { updatedMemo in
                 Task { await rootViewModel.saveMemo(updatedMemo) }
             }
@@ -72,6 +75,9 @@ struct CanvasView: View {
             }
             .background(Color(nsColor: .windowBackgroundColor))
         }
+        // **窓を閉じたら道具を引っ込めます。** 道具は別のウィンドウなので、
+        // 出したままキャンバスを閉じると、宛先のない道具が浮き続けます。
+        .onDisappear { viewModel.endEditingText() }
         .navigationTitle(viewModel.memo.title)
         .toolbar {
             ToolbarItem {

@@ -151,6 +151,54 @@ final class MarkdownTextView: NSTextView {
         return true
     }
 
+    /// **入力コンテキストを自分で起動します。**
+    ///
+    /// デスクトップに貼ったメモの窓は枠なしで、中身は `NSHostingView` の下にあります。
+    /// この形だと、ファーストレスポンダになっても **AppKit が入力コンテキストを
+    /// 起動しないことがあります。** そうなると `NSTextInputContext.current` が `nil` のままで、
+    /// **入力メソッドが渡す相手を失います。**
+    ///
+    /// 症状は「英字は打てるが、かなが 1 文字も入らない」です。英字は入力メソッドを
+    /// 通らず `insertText` へ直接来るため、違いに気づきにくくなります。
+    /// 変換候補の窓だけが画面の隅に出たままになります（実機の記録で確認しました）。
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+
+        if result {
+            inputContext?.activate()
+        }
+        return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+
+        if result {
+            inputContext?.deactivate()
+        }
+        return result
+    }
+
+    /// 高さが変わったら、キャレットを見えるところへ送り直す。
+    ///
+    /// **TextKit 2 は高さを見積もりで返します。** 組み終わってから本当の値に直すので、
+    /// 打った直後に `NSTextView` が合わせた位置は、**あとから来る高さの修正で崩れます。**
+    /// 長い本文を打っていると、打ち終わりに少し上へ巻き戻る形で出ます
+    /// （実機の記録で、こちらのコードを通らない場所で高さが 53pt 縮むのを確認しました）。
+    ///
+    /// **書き換え中だけ追いかけます。** 表示だけのときに動かすと、読んでいる場所が飛びます。
+    /// **変換中も動かしません。** 候補を選んでいる最中に画面が動くと選びにくくなります。
+    override func setFrameSize(_ newSize: NSSize) {
+        let didChangeHeight = newSize.height != frame.height
+        super.setFrameSize(newSize)
+
+        guard didChangeHeight, isEditable, !isComposing else {
+            return
+        }
+
+        scrollRangeToVisible(selectedRange())
+    }
+
     override func cancelOperation(_ sender: Any?) {
         // **変換中の Esc は変換の取り消しです。** ここで編集を抜けると、
         // 変換をやめたいだけの操作で編集モードごと閉じてしまいます。

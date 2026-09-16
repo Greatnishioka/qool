@@ -15,6 +15,9 @@ struct CanvasTextEditing {
     let selection: Binding<NSRange>
     let onChange: (String) -> Void
     let onEndEditing: () -> Void
-    /// 選択のある行の位置を要素の中の座標で返します。**道具を浮かせる場所**です。
+    /// 選択のある行の位置を**画面座標**で返します。**道具を浮かせる場所**です。
+    ///
+    /// **要素の中の座標ではありません。** 道具は別のウィンドウに出すので、
+    /// 縮小された貼ったメモから来ても同じ意味になる座標が要ります。
     let onSelectionGeometry: (CGRect?) -> Void
 }

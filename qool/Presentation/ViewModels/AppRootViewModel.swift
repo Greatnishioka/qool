@@ -20,6 +20,20 @@ final class AppRootViewModel: ObservableObject {
     /// `openWindow` は View からしか呼べないため、要求だけをここに置いて View 側が実行します。
     @Published private(set) var canvasRequest: Memo.ID?
 
+    /// 書式の道具を出す要求。**キャンバスと貼ったメモの合流点です。**
+    ///
+    /// 道具は別のウィンドウに出すので、アプリに 1 つしかない置き場が要ります。
+    /// `CanvasViewModel` は `CanvasView` の中で作られて貼ったメモ側から触れないため、
+    /// **両方が握っているここを通します**（[#21](https://github.com/Greatnishioka/qool/issues/21)）。
+    @Published private(set) var richTextToolbar: RichTextToolbarRequest?
+
+    /// 今その道具を出している主。
+    ///
+    /// **引っ込める要求は主が一致したときだけ通します。** キャンバスの窓は
+    /// `WindowGroup(for:)` で何枚でも開けるので、片方を閉じただけで
+    /// **まだ書いているもう片方の道具が消えます。**
+    private var richTextToolbarOwner: UUID?
+
     private let loadMemosUseCase: LoadMemosUseCase
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
@@ -237,6 +251,25 @@ final class AppRootViewModel: ObservableObject {
     /// 開き終えたら View 側が呼びます。**同じメモを続けて開けるように毎回戻します。**
     func clearCanvasRequest() {
         canvasRequest = nil
+    }
+
+    /// 書式の道具を出す／引っ込める。**選択が動くたびに呼ばれます。**
+    ///
+    /// - Parameter owner: 出し入れする主。**引っ込めるのは自分が出したものだけ**です。
+    func updateRichTextToolbar(_ request: RichTextToolbarRequest?, from owner: UUID) {
+        guard let request else {
+            guard richTextToolbarOwner == owner else {
+                return
+            }
+
+            richTextToolbarOwner = nil
+            richTextToolbar = nil
+
+            return
+        }
+
+        richTextToolbarOwner = owner
+        richTextToolbar = request
     }
 
     /// 保留している書き込みを確定する。**アプリ終了時に必ず呼んでください。**

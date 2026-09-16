@@ -29,9 +29,15 @@ final class CanvasViewModel: ObservableObject {
     @Published private(set) var editingTextElementID: CanvasElement.ID?
     /// 書き換え中の本文の選択。**道具から書式を付けるときの対象**です。
     @Published var textSelection = NSRange(location: 0, length: 0)
-    /// 選択のある行の位置（要素の中の座標）。**道具をここへ浮かせます。**
+    /// 選択のある行の位置。**画面座標です。**
+    ///
+    /// 道具は別のウィンドウに浮かべるので、要素の中の座標では置き場所を決められません
+    /// （[#21](https://github.com/Greatnishioka/qool/issues/21) の段階 5）。
     /// 選んでいない間は `nil` で、道具を出しません。
-    @Published private(set) var textSelectionRect: CGRect?
+    ///
+    /// **`@Published` にしません。** 画面の誰も読まない値で、選択が動くたびに
+    /// キャンバス全体が再評価されます。
+    private var textSelectionRect: CGRect?
 
     private var pathDraftPoints: [CGPoint] = []
     private let selectionService: CanvasSelectionService
@@ -56,6 +62,13 @@ final class CanvasViewModel: ObservableObject {
     private let buildCutoutContourUseCase: BuildCutoutContourUseCase
     private let buildCutoutCandidatesUseCase: BuildCutoutCandidatesUseCase
     private let onSave: (Memo) -> Void
+    /// 書式の道具を出す先。**ルートの ViewModel へ渡ります。**
+    /// キャンバスと貼ったメモで道具を共有するため、出す判断だけをここで持ちます。
+    private let onRichTextToolbar: (UUID, RichTextToolbarRequest?) -> Void
+
+    /// 道具を出した主を見分ける印。**キャンバスの窓は何枚でも開けます。**
+    /// 印が無いと、片方を閉じただけでもう片方の道具まで消えます。
+    private let richTextToolbarOwner = UUID()
 
     init(
         memo: Memo,
@@ -71,6 +84,7 @@ final class CanvasViewModel: ObservableObject {
         updateElementUseCase: UpdateCanvasElementUseCase = UpdateCanvasElementUseCase(),
         unionElementsUseCase: UnionCanvasElementsUseCase = UnionCanvasElementsUseCase(),
         reorderElementsUseCase: ReorderCanvasElementsUseCase = ReorderCanvasElementsUseCase(),
+        onRichTextToolbar: @escaping (UUID, RichTextToolbarRequest?) -> Void = { _, _ in },
         onSave: @escaping (Memo) -> Void
     ) {
         self.memo = memo
@@ -86,6 +100,7 @@ final class CanvasViewModel: ObservableObject {
         self.importImageUseCase = importImageUseCase
         self.buildCutoutContourUseCase = buildCutoutContourUseCase
         self.buildCutoutCandidatesUseCase = buildCutoutCandidatesUseCase
+        self.onRichTextToolbar = onRichTextToolbar
         self.onSave = onSave
     }
 
@@ -759,6 +774,28 @@ final class CanvasViewModel: ObservableObject {
         }
 
         textSelectionRect = rect
+        publishRichTextToolbar()
+    }
+
+    /// 道具を出す要求を組み立てて流す。
+    ///
+    /// **自分を弱く捕まえます。** 要求はルートの ViewModel が持ち続けるので、
+    /// 強く持つとキャンバスを閉じてもここが解放されません。
+    private func publishRichTextToolbar() {
+        guard editingTextElementID != nil, let rect = textSelectionRect else {
+            onRichTextToolbar(richTextToolbarOwner, nil)
+
+            return
+        }
+
+        onRichTextToolbar(
+            richTextToolbarOwner,
+            RichTextToolbarRequest(
+                selectionRect: rect,
+                onStyle: { [weak self] style in self?.applyInlineStyle(style) },
+                onColor: { [weak self] color in self?.applyTextColor(color) }
+            )
+        )
     }
 
     /// 選んだ範囲の書式を付け外しする。
@@ -804,6 +841,7 @@ final class CanvasViewModel: ObservableObject {
 
         editingTextElementID = nil
         textSelectionRect = nil
+        publishRichTextToolbar()
     }
 
     /// 本文を書き換える。**編集中の要素へ直に書きます。** 選択に依らせると、
