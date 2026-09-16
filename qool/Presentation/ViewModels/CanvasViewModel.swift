@@ -45,8 +45,7 @@ final class CanvasViewModel: ObservableObject {
     private let moveElementsUseCase: MoveCanvasElementsUseCase
     private let deleteElementsUseCase: DeleteCanvasElementsUseCase
     private let updateElementUseCase: UpdateCanvasElementUseCase
-    private let toggleInlineStyleUseCase = ToggleInlineMarkdownStyleUseCase()
-    private let applyColorUseCase = ApplyMarkdownColorUseCase()
+    private let styling = RichTextStyling()
     private let unionElementsUseCase: UnionCanvasElementsUseCase
     private let reorderElementsUseCase: ReorderCanvasElementsUseCase
     private let resizeElementUseCase = ResizeCanvasElementUseCase()
@@ -803,19 +802,11 @@ final class CanvasViewModel: ObservableObject {
     /// **書き換えるのは本文の文字列だけです。** 選択も一緒に戻すので、
     /// 続けて別の書式を重ねられます。
     func applyInlineStyle(_ style: InlineMarkdownStyle) {
-        applyTextEdit { markdown, selection in
-            let result = toggleInlineStyleUseCase(markdown, selection: selection, style: style)
-
-            return (result.markdown, result.selection)
-        }
+        applyTextEdit { styling.applying(style, to: $0, selection: $1) }
     }
 
     func applyTextColor(_ color: RGBAComponents?) {
-        applyTextEdit { markdown, selection in
-            let result = applyColorUseCase(markdown, selection: selection, color: color)
-
-            return (result.markdown, result.selection)
-        }
+        applyTextEdit { styling.applying(color, to: $0, selection: $1) }
     }
 
     private func applyTextEdit(_ edit: (String, NSRange) -> (String, NSRange)) {

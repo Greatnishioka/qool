@@ -13,6 +13,9 @@ struct FloatingMemoView: View {
     let onTextChange: (CanvasElement.ID, String) -> Void
     /// 書き換えに入った／抜けた。**入っている間は窓を作り直させません。**
     let onEditingChange: (Bool) -> Void
+    /// 書式の道具を出す／引っ込める。**主の印を添えます。**
+    /// 添えないと、別の窓が出した道具まで引っ込めてしまいます。
+    let onToolbar: (UUID, RichTextToolbarRequest?) -> Void
 
     /// 書き換えている要素。**このビューの中に持ちます。**
     ///
@@ -29,6 +32,14 @@ struct FloatingMemoView: View {
     /// 選択が動くたびに `body` が走り直し、古い本文が「外から来た新しい値」として
     /// 流し込まれるためです。
     @State private var editingText: String?
+
+    /// 道具を出した主を見分ける印。**貼ったメモは何枚でも出せます。**
+    @State private var toolbarOwner = UUID()
+
+    /// **選択の位置は持ちません。** スクロール中は毎フレーム変わるので、
+    /// `@State` に入れると打つたび・送るたびにこのメモ全体が描き直されます
+    /// （キャンバス側で同じことをして重くなりました）。受け取ってそのまま流します。
+    private let styling = RichTextStyling()
 
     var body: some View {
         GeometryReader { proxy in
@@ -130,9 +141,46 @@ struct FloatingMemoView: View {
                 onTextChange(element.id, text)
             },
             onEndEditing: endEditing,
-            // 道具はまだ出しません（段階 5-c）。
-            onSelectionGeometry: { _ in }
+            onSelectionGeometry: publishToolbar
         )
+    }
+
+    /// 選んだ範囲の上に道具を出す。**範囲が無ければ引っ込めます。**
+    private func publishToolbar(_ selectionRect: CGRect?) {
+        guard editingElementID != nil, let selectionRect else {
+            onToolbar(toolbarOwner, nil)
+
+            return
+        }
+
+        onToolbar(
+            toolbarOwner,
+            RichTextToolbarRequest(
+                selectionRect: selectionRect,
+                onStyle: { style in applyTextEdit { styling.applying(style, to: $0, selection: $1) } },
+                onColor: { color in applyTextEdit { styling.applying(color, to: $0, selection: $1) } }
+            )
+        )
+    }
+
+    /// 書式を当てて、**本文と選択の両方**を書き戻す。
+    ///
+    /// **選択も戻すのが要点です。** 記号を足した分だけ位置がずれるので、
+    /// そのままにすると続けて別の書式を重ねられません。
+    private func applyTextEdit(_ edit: (String, NSRange) -> (String, NSRange)) {
+        guard let elementID = editingElementID, let current = editingText else {
+            return
+        }
+
+        let (markdown, selection) = edit(current, textSelection)
+
+        guard markdown != current else {
+            return
+        }
+
+        editingText = markdown
+        textSelection = selection
+        onTextChange(elementID, markdown)
     }
 
     private func beginEditing(_ element: CanvasElement) {
@@ -153,6 +201,7 @@ struct FloatingMemoView: View {
 
         editingElementID = nil
         editingText = nil
+        onToolbar(toolbarOwner, nil)
         onEditingChange(false)
     }
 }

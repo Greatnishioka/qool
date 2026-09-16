@@ -107,6 +107,9 @@ final class FloatingMemoPresenter {
                 },
                 onEditingChange: { [weak self] isEditing in
                     self?.setEditing(isEditing, for: memo.id)
+                },
+                onToolbar: { [weak self] owner, request in
+                    self?.viewModel.updateRichTextToolbar(request, from: owner)
                 }
             ),
             onMove: { [weak self] movedOrigin in
