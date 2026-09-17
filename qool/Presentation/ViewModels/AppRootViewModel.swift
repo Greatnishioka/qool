@@ -50,11 +50,11 @@ final class AppRootViewModel: ObservableObject {
     private let saveMemoUseCase: SaveMemoUseCase
     private let deleteMemoUseCase: DeleteMemoUseCase
     private let loadStickyNotesUseCase: LoadStickyNotesUseCase
-    private let createStickyNoteUseCase: CreateStickyNoteUseCase
     private let saveStickyNoteUseCase: SaveStickyNoteUseCase
     private let deleteStickyNoteUseCase: DeleteStickyNoteUseCase
     private let deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase
     private let flushStickyNotesUseCase: FlushStickyNotesUseCase
+    private let naming = StickyNoteNaming()
 
     /// メモとは別に持つ設定。**ホットキーと共有します**（同じ値を 2 箇所で持たないため）。
     let settings: any AppSettingsProtocol
@@ -74,7 +74,6 @@ final class AppRootViewModel: ObservableObject {
         saveMemoUseCase: SaveMemoUseCase,
         deleteMemoUseCase: DeleteMemoUseCase,
         loadStickyNotesUseCase: LoadStickyNotesUseCase,
-        createStickyNoteUseCase: CreateStickyNoteUseCase,
         saveStickyNoteUseCase: SaveStickyNoteUseCase,
         deleteStickyNoteUseCase: DeleteStickyNoteUseCase,
         deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase,
@@ -92,7 +91,6 @@ final class AppRootViewModel: ObservableObject {
         self.saveMemoUseCase = saveMemoUseCase
         self.deleteMemoUseCase = deleteMemoUseCase
         self.loadStickyNotesUseCase = loadStickyNotesUseCase
-        self.createStickyNoteUseCase = createStickyNoteUseCase
         self.saveStickyNoteUseCase = saveStickyNoteUseCase
         self.deleteStickyNoteUseCase = deleteStickyNoteUseCase
         self.deleteStickyNotesOfTemplateUseCase = deleteStickyNotesOfTemplateUseCase
@@ -164,7 +162,6 @@ final class AppRootViewModel: ObservableObject {
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
             deleteMemoUseCase: DeleteMemoUseCase(repository: repository),
             loadStickyNotesUseCase: LoadStickyNotesUseCase(repository: stickyNoteRepository),
-            createStickyNoteUseCase: CreateStickyNoteUseCase(repository: stickyNoteRepository),
             saveStickyNoteUseCase: SaveStickyNoteUseCase(repository: stickyNoteRepository),
             deleteStickyNoteUseCase: DeleteStickyNoteUseCase(repository: stickyNoteRepository),
             deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase(repository: stickyNoteRepository),
@@ -221,21 +218,27 @@ final class AppRootViewModel: ObservableObject {
     // MARK: - 付箋
 
     /// 雛形から付箋を 1 枚出す。**何枚でも出せます。**
+    ///
+    /// **題名を決めて、先に一覧へ入れてから保存します。** 保存を待ってから足すと、
+    /// 続けて押されたときに**両方が同じ題名を選びます。**
     @discardableResult
     func createStickyNote(from template: Memo, at origin: CGPoint) async -> StickyNote? {
-        do {
-            let note = try await createStickyNoteUseCase(
-                from: template,
-                at: origin,
-                existing: stickyNotes
-            )
-            stickyNotes.insert(note, at: 0)
+        let note = StickyNote(
+            templateID: template.id,
+            title: naming.title(forTemplate: template, existing: stickyNotes),
+            origin: origin
+        )
+        stickyNotes.insert(note, at: 0)
 
-            return note
+        do {
+            let saved = try await saveStickyNoteUseCase(note)
+            touchStickyNote(id: saved.id, updatedAt: saved.updatedAt)
+
+            return saved
         } catch {
             persistenceStatus = .failing
 
-            return nil
+            return note
         }
     }
 
@@ -246,12 +249,24 @@ final class AppRootViewModel: ObservableObject {
         apply(note)
 
         do {
-            apply(try await saveStickyNoteUseCase(note))
+            let saved = try await saveStickyNoteUseCase(note)
+            // **戻り値で丸ごと置き換えません。** 待っている間に別の変更が入っていると、
+            // **保存を始めた時点の値へ巻き戻ります。** 進めるのは更新日時だけです。
+            touchStickyNote(id: saved.id, updatedAt: saved.updatedAt)
         } catch {
             // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
-            apply(note)
             persistenceStatus = .failing
         }
+    }
+
+    /// 保存できた印として更新日時だけ進める。**戻る方向へは動かしません。**
+    private func touchStickyNote(id: StickyNote.ID, updatedAt: Date) {
+        guard let index = stickyNotes.firstIndex(where: { $0.id == id }),
+              stickyNotes[index].updatedAt < updatedAt else {
+            return
+        }
+
+        stickyNotes[index].updatedAt = updatedAt
     }
 
     /// 雛形から消えたテキスト要素の本文を、付箋から落とす。
@@ -260,8 +275,15 @@ final class AppRootViewModel: ObservableObject {
     /// 毎回全部の付箋を書き直すと保存が膨れます。
     private func pruneStickyNotes(against template: Memo) async {
         let composer = StickyNoteCanvasComposer()
+        let targets = stickyNotes.filter { $0.templateID == template.id }.map(\.id)
 
-        for note in stickyNotes where note.templateID == template.id {
+        for id in targets {
+            // **1 件ごとに引き直します。** 前の 1 件を待っている間に別の付箋が
+            // 書き換わっていると、**始めた時点の写しで丸ごと上書き**してしまいます。
+            guard let note = stickyNotes.first(where: { $0.id == id }) else {
+                continue
+            }
+
             let pruned = composer.pruned(note, against: template.canvas)
 
             guard pruned != note else {
