@@ -196,50 +196,63 @@ struct FloatingMemoTests {
 
     // MARK: - 一覧とキャンバスの同期
 
-    /// **キャンバスは開いた時点の `Memo` を持ち続けます。**
-    /// その写しをそのまま書き戻すと、あいだに動かした貼り付け位置が巻き戻ります。
+    /// **キャンバスの保存が付箋を巻き戻さないこと。**
+    ///
+    /// 以前は 1 つの `Memo` が設計図と机の上の 1 枚を兼ねていたため、
+    /// キャンバスが開いた時点の写しを書き戻すと、あいだの変更が消えました
+    /// （[#27](https://github.com/Greatnishioka/qool/issues/27)）。
+    /// **雛形と付箋を別のレコードに分けたので、構造的に起きません。**
     @MainActor
-    @Test func キャンバスの保存で貼り付け位置が巻き戻らない() async throws {
+    @Test func キャンバスの保存で付箋の本文が巻き戻らない() async throws {
         let viewModel = AppRootViewModel.bootstrap(repository: InMemoryMemoRepositoryInfrastructure())
         let created = try #require(await viewModel.createMemo())
 
-        // キャンバスが開いた時点の写し（まだ貼っていない）。
-        let staleMemo = created
+        // **雛形にテキスト要素が要ります。** 無い要素の本文は掃除で捨てられます。
+        let element = CanvasElement(
+            kind: .text,
+            frame: CGRect(x: 0, y: 0, width: 100, height: 40),
+            fillColor: .clear
+        )
+        var template = created
+        template.canvas.elements = [element]
+        await viewModel.saveMemo(template)
+        template = try #require(viewModel.memos.first { $0.id == created.id })
 
-        await viewModel.updateFloatingOrigin(CGPoint(x: 300, y: 400), for: created.id)
-        // キャンバス側が編集して保存する。
-        var edited = staleMemo
+        let note = try #require(await viewModel.createStickyNote(from: template, at: .zero))
+
+        // 付箋の本文を書き換える。
+        var written = note
+        written.texts[element.id] = "付箋に書いた"
+        await viewModel.saveStickyNote(written)
+
+        // キャンバスは開いた時点の写しを書き戻す。
+        var edited = template
         edited.title = "編集した"
         await viewModel.saveMemo(edited)
 
-        let saved = try #require(viewModel.memos.first { $0.id == created.id })
-        #expect(saved.title == "編集した")
-        #expect(saved.floatingOrigin == CGPoint(x: 300, y: 400))
+        let savedNote = try #require(viewModel.stickyNotes.first { $0.id == note.id })
+        let savedTemplate = try #require(viewModel.memos.first { $0.id == created.id })
+
+        #expect(savedNote.texts[element.id] == "付箋に書いた")
+        #expect(savedTemplate.title == "編集した")
     }
 
     // MARK: - 永続化
 
-    @Test func 貼った位置は保存して読み戻せる() throws {
-        let memo = Memo(title: "貼ったメモ", floatingOrigin: CGPoint(x: 120, y: 340))
-        let data = try JSONEncoder().encode(memo)
-        let decoded = try JSONDecoder().decode(Memo.self, from: data)
-
-        #expect(decoded.floatingOrigin == CGPoint(x: 120, y: 340))
-    }
-
-    /// 位置を持たない既存のメモを壊さないことの確認。
-    @Test func 位置のない古いメモも読み込める() throws {
+    /// **貼り付け位置は `Memo` から外しました。** 位置は付箋が持ちます。
+    /// 古い保存に残っていても読み飛ばせることの確認です。
+    @Test func 貼り付け位置の残った古い雛形も読み込める() throws {
         let json = """
         {
             "id": "\(UUID().uuidString)",
             "title": "古いメモ",
             "updatedAt": 0,
-            "canvas": { "elements": [] }
+            "canvas": { "elements": [] },
+            "floatingOrigin": { "x": 120, "y": 340 }
         }
         """
         let decoded = try JSONDecoder().decode(Memo.self, from: Data(json.utf8))
 
-        #expect(decoded.floatingOrigin == nil)
         #expect(decoded.title == "古いメモ")
     }
 }

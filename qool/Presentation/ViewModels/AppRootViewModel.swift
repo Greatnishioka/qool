@@ -49,7 +49,6 @@ final class AppRootViewModel: ObservableObject {
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
     private let deleteMemoUseCase: DeleteMemoUseCase
-    private let updateFloatingOriginUseCase: UpdateFloatingOriginUseCase
     private let loadStickyNotesUseCase: LoadStickyNotesUseCase
     private let createStickyNoteUseCase: CreateStickyNoteUseCase
     private let saveStickyNoteUseCase: SaveStickyNoteUseCase
@@ -74,7 +73,6 @@ final class AppRootViewModel: ObservableObject {
         createMemoUseCase: CreateMemoUseCase,
         saveMemoUseCase: SaveMemoUseCase,
         deleteMemoUseCase: DeleteMemoUseCase,
-        updateFloatingOriginUseCase: UpdateFloatingOriginUseCase,
         loadStickyNotesUseCase: LoadStickyNotesUseCase,
         createStickyNoteUseCase: CreateStickyNoteUseCase,
         saveStickyNoteUseCase: SaveStickyNoteUseCase,
@@ -93,7 +91,6 @@ final class AppRootViewModel: ObservableObject {
         self.createMemoUseCase = createMemoUseCase
         self.saveMemoUseCase = saveMemoUseCase
         self.deleteMemoUseCase = deleteMemoUseCase
-        self.updateFloatingOriginUseCase = updateFloatingOriginUseCase
         self.loadStickyNotesUseCase = loadStickyNotesUseCase
         self.createStickyNoteUseCase = createStickyNoteUseCase
         self.saveStickyNoteUseCase = saveStickyNoteUseCase
@@ -166,7 +163,6 @@ final class AppRootViewModel: ObservableObject {
             createMemoUseCase: CreateMemoUseCase(repository: repository),
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
             deleteMemoUseCase: DeleteMemoUseCase(repository: repository),
-            updateFloatingOriginUseCase: UpdateFloatingOriginUseCase(repository: repository),
             loadStickyNotesUseCase: LoadStickyNotesUseCase(repository: stickyNoteRepository),
             createStickyNoteUseCase: CreateStickyNoteUseCase(repository: stickyNoteRepository),
             saveStickyNoteUseCase: SaveStickyNoteUseCase(repository: stickyNoteRepository),
@@ -228,7 +224,11 @@ final class AppRootViewModel: ObservableObject {
     @discardableResult
     func createStickyNote(from template: Memo, at origin: CGPoint) async -> StickyNote? {
         do {
-            let note = try await createStickyNoteUseCase(from: template, at: origin)
+            let note = try await createStickyNoteUseCase(
+                from: template,
+                at: origin,
+                existing: stickyNotes
+            )
             stickyNotes.insert(note, at: 0)
 
             return note
@@ -270,6 +270,16 @@ final class AppRootViewModel: ObservableObject {
 
             await saveStickyNote(pruned)
         }
+    }
+
+    /// 付箋の題名を変える。**一覧で見分けるための名前です。**
+    func renameStickyNote(id: StickyNote.ID, to title: String) async {
+        guard var note = stickyNotes.first(where: { $0.id == id }), note.title != title else {
+            return
+        }
+
+        note.title = title
+        await saveStickyNote(note)
     }
 
     func deleteStickyNote(id: StickyNote.ID) async {
@@ -347,8 +357,6 @@ final class AppRootViewModel: ObservableObject {
     }
 
     func saveMemo(_ memo: Memo) async {
-        let memo = preservingFieldsCanvasDoesNotOwn(memo)
-
         do {
             // 戻り値を使うのが要点。`SaveMemoUseCase` が更新日時を差し替えるため、
             // 引数の `memo` をそのまま一覧へ入れると更新日時が古いままになります。
@@ -361,39 +369,6 @@ final class AppRootViewModel: ObservableObject {
             // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
             selectedMemo = memo
             apply(memo)
-        }
-    }
-
-    /// **キャンバスは開いた時点の写しを持ち続けます。** その間に貼り付け位置が変わっても
-    /// キャンバス側は知らないため、そのまま書くと位置が巻き戻ります
-    /// （貼ったウィンドウを動かしたあとキャンバスを編集する、で再現します）。
-    /// 貼り付け位置はキャンバスが編集しない情報なので、一覧側の値を残します。
-    private func preservingFieldsCanvasDoesNotOwn(_ memo: Memo) -> Memo {
-        guard let current = memos.first(where: { $0.id == memo.id }) else {
-            return memo
-        }
-
-        var preserved = memo
-        preserved.floatingOrigin = current.floatingOrigin
-
-        return preserved
-    }
-
-    /// デスクトップに貼る位置を書き換える。`nil` ではがします。
-    func updateFloatingOrigin(_ origin: CGPoint?, for memoID: Memo.ID) async {
-        guard let memo = memos.first(where: { $0.id == memoID }), memo.floatingOrigin != origin else {
-            return
-        }
-
-        do {
-            let savedMemo = try await updateFloatingOriginUseCase(memo, to: origin)
-            apply(savedMemo)
-
-            if selectedMemo?.id == savedMemo.id {
-                selectedMemo?.floatingOrigin = origin
-            }
-        } catch {
-            // 書けなくても画面上は貼ったままにします。失敗は状態表示が伝えます。
         }
     }
 

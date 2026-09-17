@@ -66,6 +66,14 @@ final class FloatingMemoPresenter {
         Task { await viewModel.deleteStickyNote(id: noteID) }
     }
 
+    /// その付箋の窓を前面へ出す。
+    ///
+    /// **一覧を作った理由がこれです。** 画面の外や他のウィンドウの裏へ行った付箋に、
+    /// 辿り着く手段が他にありません。
+    func focus(_ noteID: StickyNote.ID) {
+        windows.activate(noteID)
+    }
+
     /// その雛形から出ている付箋。ホットキーの切り替えに使います。
     func stickyNotes(of templateID: Memo.ID) -> [StickyNote] {
         viewModel.stickyNotes.filter { $0.templateID == templateID }

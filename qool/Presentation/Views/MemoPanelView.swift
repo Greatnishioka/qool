@@ -11,6 +11,10 @@ struct MemoPanelView: View {
     /// 削除は取り消せないので、確認を挟みます。
     @State private var memoPendingDeletion: Memo?
 
+    /// 名前を変えている付箋。
+    @State private var notePendingRename: StickyNote?
+    @State private var renamedTitle = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 失敗しているときだけ出る。常時は何も足しません。
@@ -56,6 +60,30 @@ struct MemoPanelView: View {
             }
         } message: {
             Text("元に戻せません。")
+        }
+        .alert(
+            "付箋の名前",
+            isPresented: Binding(
+                get: { notePendingRename != nil },
+                set: { if !$0 { notePendingRename = nil } }
+            )
+        ) {
+            TextField("名前", text: $renamedTitle)
+
+            Button("変更") {
+                guard let note = notePendingRename else {
+                    return
+                }
+
+                notePendingRename = nil
+                Task { await viewModel.renameStickyNote(id: note.id, to: renamedTitle) }
+            }
+            Button("キャンセル", role: .cancel) {
+                notePendingRename = nil
+            }
+        } message: {
+            // **同じ雛形から出した付箋は既定の名前が似ます。** 見分けるために変えられます。
+            Text("一覧で見分けるための名前です。")
         }
     }
 
@@ -169,25 +197,50 @@ struct MemoPanelView: View {
     /// 雛形の行では表せません（[#29](https://github.com/Greatnishioka/qool/issues/29)）。
     private func stickyNoteRow(_ note: StickyNote) -> some View {
         HStack(spacing: 4) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(note.title)
-                    .font(.system(size: 13, weight: .medium))
+            Button {
+                // **押したら前面へ出します。** 画面の外や他のウィンドウの裏へ行った付箋に、
+                // 辿り着く手段が他にありません。
+                floatingMemos.focus(note.id)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(note.title)
+                        .font(.system(size: 13, weight: .medium))
 
-                Text(templateTitle(of: note))
+                    Text(templateTitle(of: note))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                Button("名前を変える") {
+                    renamedTitle = note.title
+                    notePendingRename = note
+                }
+
+                Button("雛形を編集") {
+                    guard let template = viewModel.memos.first(where: { $0.id == note.templateID }) else {
+                        return
+                    }
+
+                    openCanvas(for: template)
+                }
+
+                Divider()
+
+                Button("はがす", role: .destructive) {
+                    floatingMemos.removeStickyNote(note.id)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
-                floatingMemos.removeStickyNote(note.id)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("はがす")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .frame(width: 22)
         }
     }
