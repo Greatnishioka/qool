@@ -32,11 +32,17 @@ nonisolated extension StickyNote: Codable {
                 y: try container.decodeIfPresent(CGFloat.self, forKey: .y) ?? 0
             ),
             // **読めない鍵は捨てます。** 直せない値を抱えたままにしても使い道がありません。
-            texts: Dictionary(
-                uniqueKeysWithValues: texts.compactMap { key, value in
-                    UUID(uuidString: key).map { ($0, value) }
+            //
+            // **`uniqueKeysWithValues` は使えません。** `UUID(uuidString:)` は
+            // 大文字と小文字のどちらも受けるので、同じ id が 2 通りの綴りで入っていると
+            // **重複した鍵で落ちます**（投げないので、読み飛ばしでは救えません）。
+            texts: texts.reduce(into: [:]) { result, pair in
+                guard let id = UUID(uuidString: pair.key) else {
+                    return
                 }
-            ),
+
+                result[id] = pair.value
+            },
             updatedAt: try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
         )
     }

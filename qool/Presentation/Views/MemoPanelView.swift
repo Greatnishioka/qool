@@ -150,9 +150,9 @@ struct MemoPanelView: View {
 
                 // **出ていなければ節ごと隠します。** 空の見出しだけが残ると、
                 // 何かを失ったように見えます。
-                if !viewModel.stickyNotes.isEmpty {
+                if !viewModel.presentableStickyNotes.isEmpty {
                     Section("机の上の付箋") {
-                        ForEach(viewModel.stickyNotes) { note in
+                        ForEach(viewModel.presentableStickyNotes) { note in
                             stickyNoteRow(note)
                         }
                     }

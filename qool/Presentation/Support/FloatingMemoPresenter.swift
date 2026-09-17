@@ -32,14 +32,16 @@ final class FloatingMemoPresenter {
     ///
     /// **雛形と付箋の両方を見ます。** 雛形を直すと付箋の形も変わるためです。
     func start() {
-        synchronize()
+        synchronize(memos: viewModel.memos, notes: viewModel.stickyNotes)
 
+        // **受け取った値をそのまま使います。** `@Published` は書き換える「前」に流すので、
+        // sink の中でプロパティを読み直すと**変更前の一覧**を見ます。
+        // 付箋を 1 枚目に出しても窓が開かず、はがしても窓が残ります。
         viewModel.$memos
-            .sink { [weak self] _ in self?.synchronize() }
-            .store(in: &observers)
-
-        viewModel.$stickyNotes
-            .sink { [weak self] _ in self?.synchronize() }
+            .combineLatest(viewModel.$stickyNotes)
+            .sink { [weak self] memos, notes in
+                self?.synchronize(memos: memos, notes: notes)
+            }
             .store(in: &observers)
     }
 
@@ -71,27 +73,36 @@ final class FloatingMemoPresenter {
 
     // MARK: -
 
-    private func synchronize() {
-        let notes = viewModel.stickyNotes
+    private func synchronize(memos: [Memo], notes: [StickyNote]) {
+        let templates = Dictionary(memos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var shown: Set<StickyNote.ID> = []
 
         for note in notes {
-            present(note)
+            guard let template = templates[note.templateID] else {
+                // **雛形が見つからないだけでは消しません。** `memo.json` が壊れて
+                // 1 件読み飛ばされただけかもしれず、そこで消すと直しても本文が戻りません。
+                continue
+            }
+
+            if present(note, from: template) {
+                shown.insert(note.id)
+            }
         }
 
-        for noteID in windows.showingNoteIDs.subtracting(notes.map(\.id)) {
+        for noteID in windows.showingNoteIDs.subtracting(shown) {
             close(noteID)
         }
     }
 
-    private func present(_ note: StickyNote) {
-        guard let template = viewModel.memos.first(where: { $0.id == note.templateID }),
-              let outline = buildOutline(from: template.canvas) else {
-            // 雛形の要素をすべて消すと形がなくなります。**付箋ごと片付けます。**
-            // 残すと一覧に出続け、要素を足し直した瞬間に、出していない付箋が現れます。
+    /// - Returns: 窓を出している（出し続けてよい）なら `true`。
+    @discardableResult
+    private func present(_ note: StickyNote, from template: Memo) -> Bool {
+        guard let outline = buildOutline(from: template.canvas) else {
+            // 雛形の要素をすべて消すと形がなくなります。描きようがないので閉じます。
+            // **付箋のレコードは消しません。** 要素を戻せばまた出ます。
             close(note.id)
-            removeStickyNote(note.id)
 
-            return
+            return false
         }
 
         // **書き換え中は中身を差し替えません。** 1 文字打つたびに保存が走り、
@@ -99,13 +110,13 @@ final class FloatingMemoPresenter {
         // **`presentedCanvases` もわざと進めません。** 進めると、抜けたあとに
         // 「同じ内容だ」と判断して当て直しが起きなくなります。
         guard !editingNoteIDs.contains(note.id) else {
-            return
+            return true
         }
 
         let canvas = composer.canvas(for: note, from: template.canvas)
 
         guard presentedCanvases[note.id] != canvas || !windows.isShowing(note.id) else {
-            return
+            return true
         }
 
         presentedCanvases[note.id] = canvas
@@ -135,6 +146,8 @@ final class FloatingMemoPresenter {
                 self?.updateOrigin(movedOrigin, of: note.id)
             }
         )
+
+        return true
     }
 
     /// 書き換えた本文を保存する。
@@ -176,7 +189,7 @@ final class FloatingMemoPresenter {
         }
 
         editingNoteIDs.remove(noteID)
-        synchronize()
+        synchronize(memos: viewModel.memos, notes: viewModel.stickyNotes)
     }
 
     private func close(_ noteID: StickyNote.ID) {

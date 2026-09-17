@@ -55,6 +55,7 @@ final class AppRootViewModel: ObservableObject {
     private let saveStickyNoteUseCase: SaveStickyNoteUseCase
     private let deleteStickyNoteUseCase: DeleteStickyNoteUseCase
     private let deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase
+    private let flushStickyNotesUseCase: FlushStickyNotesUseCase
 
     /// メモとは別に持つ設定。**ホットキーと共有します**（同じ値を 2 箇所で持たないため）。
     let settings: any AppSettingsProtocol
@@ -79,6 +80,7 @@ final class AppRootViewModel: ObservableObject {
         saveStickyNoteUseCase: SaveStickyNoteUseCase,
         deleteStickyNoteUseCase: DeleteStickyNoteUseCase,
         deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase,
+        flushStickyNotesUseCase: FlushStickyNotesUseCase,
         flushMemosUseCase: FlushMemosUseCase,
         observeWriteStatesUseCase: ObserveWriteStatesUseCase,
         settings: any AppSettingsProtocol,
@@ -97,6 +99,7 @@ final class AppRootViewModel: ObservableObject {
         self.saveStickyNoteUseCase = saveStickyNoteUseCase
         self.deleteStickyNoteUseCase = deleteStickyNoteUseCase
         self.deleteStickyNotesOfTemplateUseCase = deleteStickyNotesOfTemplateUseCase
+        self.flushStickyNotesUseCase = flushStickyNotesUseCase
         self.settings = settings
         self.imageStore = imageStore
         self.maskStore = maskStore
@@ -139,14 +142,23 @@ final class AppRootViewModel: ObservableObject {
         // まとめ書きを挟む。flush はアプリ側で呼ぶ必要があります。
         let repository = DebouncedMemoRepositoryInfrastructure(wrapping: FileMemoRepositoryInfrastructure())
 
-        return bootstrap(repository: repository, monitor: repository, settings: settings)
+        // **ディスクの実装はここでだけ渡します。** 既定値にすると、
+        // 偽のリポジトリを渡したテストが実データの付箋を読み書きします。
+        return bootstrap(
+            repository: repository,
+            monitor: repository,
+            stickyNoteRepository: SerializedStickyNoteRepositoryInfrastructure(
+                wrapping: FileStickyNoteRepositoryInfrastructure()
+            ),
+            settings: settings
+        )
     }
 
     static func bootstrap(
         repository: any MemoRepositoryProtocol,
         monitor: (any MemoWriteMonitoringProtocol)? = nil,
         imageRepository: any ImageAssetRepositoryProtocol = FileImageAssetRepositoryInfrastructure(),
-        stickyNoteRepository: any StickyNoteRepositoryProtocol = FileStickyNoteRepositoryInfrastructure(),
+        stickyNoteRepository: any StickyNoteRepositoryProtocol = InMemoryStickyNoteRepositoryInfrastructure(),
         settings: any AppSettingsProtocol = UserDefaultsAppSettingsInfrastructure()
     ) -> AppRootViewModel {
         AppRootViewModel(
@@ -160,6 +172,7 @@ final class AppRootViewModel: ObservableObject {
             saveStickyNoteUseCase: SaveStickyNoteUseCase(repository: stickyNoteRepository),
             deleteStickyNoteUseCase: DeleteStickyNoteUseCase(repository: stickyNoteRepository),
             deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase(repository: stickyNoteRepository),
+            flushStickyNotesUseCase: FlushStickyNotesUseCase(repository: stickyNoteRepository),
             flushMemosUseCase: FlushMemosUseCase(repository: repository),
             observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
             settings: settings,
@@ -187,18 +200,26 @@ final class AppRootViewModel: ObservableObject {
 
     /// 付箋を読み直す。
     ///
-    /// **雛形の無い付箋は捨てます。** 形を持たないので描きようがありません。
-    /// 雛形を消したときに片付け損ねた分が、ここで掃除されます。
+    /// **読めなかったときは今の一覧を残します。** 空を入れると「0 件」と区別できず、
+    /// ディスクには残っているのに画面から消えたように見えます（メモ側と同じ扱い）。
     private func reloadStickyNotes() {
-        let templateIDs = Set(memos.map(\.id))
-        let loaded = (try? loadStickyNotesUseCase()) ?? []
-        let orphans = loaded.filter { !templateIDs.contains($0.templateID) }
-
-        stickyNotes = loaded.filter { templateIDs.contains($0.templateID) }
-
-        for orphan in orphans {
-            Task { try? await deleteStickyNoteUseCase(id: orphan.id) }
+        guard let loaded = try? loadStickyNotesUseCase() else {
+            return
         }
+
+        stickyNotes = loaded
+    }
+
+    /// 描ける付箋。**雛形のある付箋だけ**です。
+    ///
+    /// **消しません。隠すだけです。** 雛形の `memo.json` が壊れて 1 件だけ読み飛ばされると、
+    /// その雛形の付箋が「雛形が消えた」ように見えます。そこで削除すると、
+    /// **雛形を直しても本文は戻りません。** 明示的に雛形を削除したときは
+    /// `deleteStickyNotes(ofTemplate:)` が片付けるので、起動時に掃除する必要はありません。
+    var presentableStickyNotes: [StickyNote] {
+        let templateIDs = Set(memos.map(\.id))
+
+        return stickyNotes.filter { templateIDs.contains($0.templateID) }
     }
 
     // MARK: - 付箋
@@ -219,12 +240,35 @@ final class AppRootViewModel: ObservableObject {
     }
 
     func saveStickyNote(_ note: StickyNote) async {
+        // **先に一覧へ反映します。** 本文と位置は別々に保存されるので、
+        // 書き終わるまで待つと、**もう片方が古い写しから書き直して打ち消します**
+        // （打ちながら窓を動かすと再現します）。
+        apply(note)
+
         do {
             apply(try await saveStickyNoteUseCase(note))
         } catch {
             // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
             apply(note)
             persistenceStatus = .failing
+        }
+    }
+
+    /// 雛形から消えたテキスト要素の本文を、付箋から落とす。
+    ///
+    /// **落とす分があるときだけ書きます。** キャンバスの保存は 1 操作ごとに走るので、
+    /// 毎回全部の付箋を書き直すと保存が膨れます。
+    private func pruneStickyNotes(against template: Memo) async {
+        let composer = StickyNoteCanvasComposer()
+
+        for note in stickyNotes where note.templateID == template.id {
+            let pruned = composer.pruned(note, against: template.canvas)
+
+            guard pruned != note else {
+                continue
+            }
+
+            await saveStickyNote(pruned)
         }
     }
 
@@ -244,10 +288,15 @@ final class AppRootViewModel: ObservableObject {
         stickyNotes.removeAll { removed.contains($0.id) }
     }
 
+    /// 付箋を一覧へ反映する。
+    ///
+    /// **一覧に無ければ足しません。** 打った直後にはがすと、後から届いた保存が
+    /// **消したはずの付箋を復活させます。**
+    ///
+    /// **その場で置き換えます。並べ直しません。** `updatedAt` の降順に直すと、
+    /// 1 打鍵ごとに一覧の中で付箋が跳ね上がります。並び順は読み込み時に決まります。
     private func apply(_ note: StickyNote) {
         guard let index = stickyNotes.firstIndex(where: { $0.id == note.id }) else {
-            stickyNotes.insert(note, at: 0)
-
             return
         }
 
@@ -307,6 +356,7 @@ final class AppRootViewModel: ObservableObject {
 
             selectedMemo = savedMemo
             apply(savedMemo)
+            await pruneStickyNotes(against: savedMemo)
         } catch {
             // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
             selectedMemo = memo
@@ -382,6 +432,9 @@ final class AppRootViewModel: ObservableObject {
     @discardableResult
     func flush() async -> Bool {
         do {
+            // **付箋も待ちます。** 本文は 1 打鍵ごとに保存されるので、
+            // 待たないと**最後に打った内容が書かれないまま終了します。**
+            try await flushStickyNotesUseCase()
             try await flushMemosUseCase()
 
             return true

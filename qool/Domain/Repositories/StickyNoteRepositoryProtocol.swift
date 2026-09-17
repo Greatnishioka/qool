@@ -11,4 +11,12 @@ nonisolated protocol StickyNoteRepositoryProtocol: Sendable {
     func save(_ note: StickyNote) async throws
 
     func delete(id: StickyNote.ID) async throws
+
+    /// 保留している書き込みを確定する。**アプリ終了時に必ず呼ぶ必要があります。**
+    /// 即座に書く実装では何もしません。
+    func flush() async throws
+}
+
+nonisolated extension StickyNoteRepositoryProtocol {
+    func flush() async throws {}
 }
