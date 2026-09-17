@@ -46,6 +46,21 @@ final class FloatingMemoPresenter {
         Task { await viewModel.updateFloatingOrigin(origin, for: memo.id) }
     }
 
+    /// 雛形から付箋を 1 枚出す。**何枚でも出せます**
+    /// （[#29](https://github.com/Greatnishioka/qool/issues/29)）。
+    ///
+    /// **窓はまだ開きません。** 一覧に増えるところまでが段 2 で、
+    /// 窓を付箋で持ち直すのは段 3 です。
+    func createStickyNote(from memo: Memo) {
+        guard let outline = buildOutline(from: memo.canvas) else {
+            return
+        }
+
+        // 置き場所は今までと同じ決め方（画面中央からカスケード）です。
+        let origin = windows.nextOrigin(for: outline)
+        Task { await viewModel.createStickyNote(from: memo, at: origin) }
+    }
+
     func unpin(_ memoID: Memo.ID) {
         Task { await viewModel.updateFloatingOrigin(nil, for: memoID) }
     }

@@ -141,12 +141,59 @@ struct MemoPanelView: View {
         } else if viewModel.memos.isEmpty {
             emptyState
         } else {
-            List(viewModel.memos) { memo in
-                memoRow(memo)
+            List {
+                Section("雛形") {
+                    ForEach(viewModel.memos) { memo in
+                        memoRow(memo)
+                    }
+                }
+
+                // **出ていなければ節ごと隠します。** 空の見出しだけが残ると、
+                // 何かを失ったように見えます。
+                if !viewModel.stickyNotes.isEmpty {
+                    Section("机の上の付箋") {
+                        ForEach(viewModel.stickyNotes) { note in
+                            stickyNoteRow(note)
+                        }
+                    }
+                }
             }
             .listStyle(.inset)
             .scrollContentBackground(.hidden)
         }
+    }
+
+    /// 出ている付箋 1 件。
+    ///
+    /// **雛形とは別に並べます。** 同じ雛形から何枚でも出せるので、
+    /// 雛形の行では表せません（[#29](https://github.com/Greatnishioka/qool/issues/29)）。
+    private func stickyNoteRow(_ note: StickyNote) -> some View {
+        HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(note.title)
+                    .font(.system(size: 13, weight: .medium))
+
+                Text(templateTitle(of: note))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                Task { await viewModel.deleteStickyNote(id: note.id) }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("はがす")
+            .frame(width: 22)
+        }
+    }
+
+    private func templateTitle(of note: StickyNote) -> String {
+        viewModel.memos.first { $0.id == note.templateID }?.title ?? "雛形がありません"
     }
 
     private func memoRow(_ memo: Memo) -> some View {
@@ -183,6 +230,11 @@ struct MemoPanelView: View {
                     hotKeys.setMain(memo)
                 }
                 .disabled(hotKeys.isMain(memo))
+
+                Button("付箋を出す") {
+                    floatingMemos.createStickyNote(from: memo)
+                }
+                .disabled(!floatingMemos.canPin(memo))
 
                 if memo.floatingOrigin == nil {
                     Button("デスクトップに貼る") {

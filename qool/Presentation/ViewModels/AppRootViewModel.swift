@@ -40,11 +40,21 @@ final class AppRootViewModel: ObservableObject {
     /// **まだ書いているもう片方の道具が消えます。**
     private var richTextToolbarOwner: UUID?
 
+    /// 机の上に出ている付箋。**雛形とは別の一覧です。**
+    /// 同じ雛形から何枚でも出せるので、雛形の一覧では表せません
+    /// （[#29](https://github.com/Greatnishioka/qool/issues/29)）。
+    @Published private(set) var stickyNotes: [StickyNote] = []
+
     private let loadMemosUseCase: LoadMemosUseCase
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
     private let deleteMemoUseCase: DeleteMemoUseCase
     private let updateFloatingOriginUseCase: UpdateFloatingOriginUseCase
+    private let loadStickyNotesUseCase: LoadStickyNotesUseCase
+    private let createStickyNoteUseCase: CreateStickyNoteUseCase
+    private let saveStickyNoteUseCase: SaveStickyNoteUseCase
+    private let deleteStickyNoteUseCase: DeleteStickyNoteUseCase
+    private let deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase
 
     /// メモとは別に持つ設定。**ホットキーと共有します**（同じ値を 2 箇所で持たないため）。
     let settings: any AppSettingsProtocol
@@ -64,6 +74,11 @@ final class AppRootViewModel: ObservableObject {
         saveMemoUseCase: SaveMemoUseCase,
         deleteMemoUseCase: DeleteMemoUseCase,
         updateFloatingOriginUseCase: UpdateFloatingOriginUseCase,
+        loadStickyNotesUseCase: LoadStickyNotesUseCase,
+        createStickyNoteUseCase: CreateStickyNoteUseCase,
+        saveStickyNoteUseCase: SaveStickyNoteUseCase,
+        deleteStickyNoteUseCase: DeleteStickyNoteUseCase,
+        deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase,
         flushMemosUseCase: FlushMemosUseCase,
         observeWriteStatesUseCase: ObserveWriteStatesUseCase,
         settings: any AppSettingsProtocol,
@@ -77,6 +92,11 @@ final class AppRootViewModel: ObservableObject {
         self.saveMemoUseCase = saveMemoUseCase
         self.deleteMemoUseCase = deleteMemoUseCase
         self.updateFloatingOriginUseCase = updateFloatingOriginUseCase
+        self.loadStickyNotesUseCase = loadStickyNotesUseCase
+        self.createStickyNoteUseCase = createStickyNoteUseCase
+        self.saveStickyNoteUseCase = saveStickyNoteUseCase
+        self.deleteStickyNoteUseCase = deleteStickyNoteUseCase
+        self.deleteStickyNotesOfTemplateUseCase = deleteStickyNotesOfTemplateUseCase
         self.settings = settings
         self.imageStore = imageStore
         self.maskStore = maskStore
@@ -126,6 +146,7 @@ final class AppRootViewModel: ObservableObject {
         repository: any MemoRepositoryProtocol,
         monitor: (any MemoWriteMonitoringProtocol)? = nil,
         imageRepository: any ImageAssetRepositoryProtocol = FileImageAssetRepositoryInfrastructure(),
+        stickyNoteRepository: any StickyNoteRepositoryProtocol = FileStickyNoteRepositoryInfrastructure(),
         settings: any AppSettingsProtocol = UserDefaultsAppSettingsInfrastructure()
     ) -> AppRootViewModel {
         AppRootViewModel(
@@ -134,6 +155,11 @@ final class AppRootViewModel: ObservableObject {
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
             deleteMemoUseCase: DeleteMemoUseCase(repository: repository),
             updateFloatingOriginUseCase: UpdateFloatingOriginUseCase(repository: repository),
+            loadStickyNotesUseCase: LoadStickyNotesUseCase(repository: stickyNoteRepository),
+            createStickyNoteUseCase: CreateStickyNoteUseCase(repository: stickyNoteRepository),
+            saveStickyNoteUseCase: SaveStickyNoteUseCase(repository: stickyNoteRepository),
+            deleteStickyNoteUseCase: DeleteStickyNoteUseCase(repository: stickyNoteRepository),
+            deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase(repository: stickyNoteRepository),
             flushMemosUseCase: FlushMemosUseCase(repository: repository),
             observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
             settings: settings,
@@ -151,11 +177,81 @@ final class AppRootViewModel: ObservableObject {
             memos = try loadMemosUseCase()
             didFailToLoad = false
             pruneUnusedImageAssets()
+            reloadStickyNotes()
         } catch {
             // 読めなかったときに空配列を入れると「メモが 0 件」と区別できません。
             // 手元の内容はそのまま残します。
             didFailToLoad = true
         }
+    }
+
+    /// 付箋を読み直す。
+    ///
+    /// **雛形の無い付箋は捨てます。** 形を持たないので描きようがありません。
+    /// 雛形を消したときに片付け損ねた分が、ここで掃除されます。
+    private func reloadStickyNotes() {
+        let templateIDs = Set(memos.map(\.id))
+        let loaded = (try? loadStickyNotesUseCase()) ?? []
+        let orphans = loaded.filter { !templateIDs.contains($0.templateID) }
+
+        stickyNotes = loaded.filter { templateIDs.contains($0.templateID) }
+
+        for orphan in orphans {
+            Task { try? await deleteStickyNoteUseCase(id: orphan.id) }
+        }
+    }
+
+    // MARK: - 付箋
+
+    /// 雛形から付箋を 1 枚出す。**何枚でも出せます。**
+    @discardableResult
+    func createStickyNote(from template: Memo, at origin: CGPoint) async -> StickyNote? {
+        do {
+            let note = try await createStickyNoteUseCase(from: template, at: origin)
+            stickyNotes.insert(note, at: 0)
+
+            return note
+        } catch {
+            persistenceStatus = .failing
+
+            return nil
+        }
+    }
+
+    func saveStickyNote(_ note: StickyNote) async {
+        do {
+            apply(try await saveStickyNoteUseCase(note))
+        } catch {
+            // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
+            apply(note)
+            persistenceStatus = .failing
+        }
+    }
+
+    func deleteStickyNote(id: StickyNote.ID) async {
+        stickyNotes.removeAll { $0.id == id }
+
+        try? await deleteStickyNoteUseCase(id: id)
+    }
+
+    /// 雛形から出した付箋をすべて片付ける。**雛形を消すときに呼びます。**
+    func deleteStickyNotes(ofTemplate templateID: Memo.ID) async {
+        let removed = (try? await deleteStickyNotesOfTemplateUseCase(
+            templateID: templateID,
+            in: stickyNotes
+        )) ?? []
+
+        stickyNotes.removeAll { removed.contains($0.id) }
+    }
+
+    private func apply(_ note: StickyNote) {
+        guard let index = stickyNotes.firstIndex(where: { $0.id == note.id }) else {
+            stickyNotes.insert(note, at: 0)
+
+            return
+        }
+
+        stickyNotes[index] = note
     }
 
     /// 参照されなくなった画像を消す。**読み込んだ直後にだけ行います。**
@@ -190,6 +286,8 @@ final class AppRootViewModel: ObservableObject {
         do {
             try await deleteMemoUseCase(memo.id)
             memos.removeAll { $0.id == memo.id }
+            // **付箋は形を持ちません。** 雛形が消えたら描きようがないので一緒に片付けます。
+            await deleteStickyNotes(ofTemplate: memo.id)
 
             if selectedMemo?.id == memo.id {
                 selectedMemo = nil

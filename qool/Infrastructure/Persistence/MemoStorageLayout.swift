@@ -5,7 +5,13 @@ import Foundation
 /// ```text
 /// <root>/memos/<memo-uuid>/memo.json
 /// <root>/memos/<memo-uuid>/assets/<asset-uuid>.png
+/// <root>/notes/<note-uuid>.json
 /// ```
+///
+/// **付箋はメモの下に置きません。** 雛形を参照するだけで自分の画像を持たないので、
+/// ディレクトリを切る意味がありません。また雛形の下に置くと、
+/// [PruneImageAssetsUseCase](../../Application/UseCases/Image/PruneImageAssetsUseCase.swift)
+/// の掃除の対象と混ざります。
 ///
 /// メモ本体と画像アセットで別々のリポジトリがこの配置を使うため、
 /// **パスの組み立てはここ 1 箇所に置きます。**
@@ -49,5 +55,15 @@ nonisolated struct MemoStorageLayout: Sendable {
     /// [方式 A](../../../docs/architecture/persistence.md) の利点のひとつだからです。
     func assetFile(_ assetID: UUID, in memoID: Memo.ID) -> URL {
         assetsDirectory(for: memoID).appending(path: "\(assetID.uuidString).png")
+    }
+
+    // MARK: - 付箋
+
+    var stickyNotesDirectory: URL {
+        rootDirectory.appending(path: "notes", directoryHint: .isDirectory)
+    }
+
+    func stickyNoteFile(for noteID: StickyNote.ID) -> URL {
+        stickyNotesDirectory.appending(path: "\(noteID.uuidString).json")
     }
 }
