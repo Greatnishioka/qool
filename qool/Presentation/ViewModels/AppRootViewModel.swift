@@ -40,11 +40,21 @@ final class AppRootViewModel: ObservableObject {
     /// **まだ書いているもう片方の道具が消えます。**
     private var richTextToolbarOwner: UUID?
 
+    /// 机の上に出ている付箋。**雛形とは別の一覧です。**
+    /// 同じ雛形から何枚でも出せるので、雛形の一覧では表せません
+    /// （[#29](https://github.com/Greatnishioka/qool/issues/29)）。
+    @Published private(set) var stickyNotes: [StickyNote] = []
+
     private let loadMemosUseCase: LoadMemosUseCase
     private let createMemoUseCase: CreateMemoUseCase
     private let saveMemoUseCase: SaveMemoUseCase
     private let deleteMemoUseCase: DeleteMemoUseCase
-    private let updateFloatingOriginUseCase: UpdateFloatingOriginUseCase
+    private let loadStickyNotesUseCase: LoadStickyNotesUseCase
+    private let saveStickyNoteUseCase: SaveStickyNoteUseCase
+    private let deleteStickyNoteUseCase: DeleteStickyNoteUseCase
+    private let deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase
+    private let flushStickyNotesUseCase: FlushStickyNotesUseCase
+    private let naming = StickyNoteNaming()
 
     /// メモとは別に持つ設定。**ホットキーと共有します**（同じ値を 2 箇所で持たないため）。
     let settings: any AppSettingsProtocol
@@ -63,7 +73,11 @@ final class AppRootViewModel: ObservableObject {
         createMemoUseCase: CreateMemoUseCase,
         saveMemoUseCase: SaveMemoUseCase,
         deleteMemoUseCase: DeleteMemoUseCase,
-        updateFloatingOriginUseCase: UpdateFloatingOriginUseCase,
+        loadStickyNotesUseCase: LoadStickyNotesUseCase,
+        saveStickyNoteUseCase: SaveStickyNoteUseCase,
+        deleteStickyNoteUseCase: DeleteStickyNoteUseCase,
+        deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase,
+        flushStickyNotesUseCase: FlushStickyNotesUseCase,
         flushMemosUseCase: FlushMemosUseCase,
         observeWriteStatesUseCase: ObserveWriteStatesUseCase,
         settings: any AppSettingsProtocol,
@@ -76,7 +90,11 @@ final class AppRootViewModel: ObservableObject {
         self.createMemoUseCase = createMemoUseCase
         self.saveMemoUseCase = saveMemoUseCase
         self.deleteMemoUseCase = deleteMemoUseCase
-        self.updateFloatingOriginUseCase = updateFloatingOriginUseCase
+        self.loadStickyNotesUseCase = loadStickyNotesUseCase
+        self.saveStickyNoteUseCase = saveStickyNoteUseCase
+        self.deleteStickyNoteUseCase = deleteStickyNoteUseCase
+        self.deleteStickyNotesOfTemplateUseCase = deleteStickyNotesOfTemplateUseCase
+        self.flushStickyNotesUseCase = flushStickyNotesUseCase
         self.settings = settings
         self.imageStore = imageStore
         self.maskStore = maskStore
@@ -119,13 +137,23 @@ final class AppRootViewModel: ObservableObject {
         // まとめ書きを挟む。flush はアプリ側で呼ぶ必要があります。
         let repository = DebouncedMemoRepositoryInfrastructure(wrapping: FileMemoRepositoryInfrastructure())
 
-        return bootstrap(repository: repository, monitor: repository, settings: settings)
+        // **ディスクの実装はここでだけ渡します。** 既定値にすると、
+        // 偽のリポジトリを渡したテストが実データの付箋を読み書きします。
+        return bootstrap(
+            repository: repository,
+            monitor: repository,
+            stickyNoteRepository: SerializedStickyNoteRepositoryInfrastructure(
+                wrapping: FileStickyNoteRepositoryInfrastructure()
+            ),
+            settings: settings
+        )
     }
 
     static func bootstrap(
         repository: any MemoRepositoryProtocol,
         monitor: (any MemoWriteMonitoringProtocol)? = nil,
         imageRepository: any ImageAssetRepositoryProtocol = FileImageAssetRepositoryInfrastructure(),
+        stickyNoteRepository: any StickyNoteRepositoryProtocol = InMemoryStickyNoteRepositoryInfrastructure(),
         settings: any AppSettingsProtocol = UserDefaultsAppSettingsInfrastructure()
     ) -> AppRootViewModel {
         AppRootViewModel(
@@ -133,7 +161,11 @@ final class AppRootViewModel: ObservableObject {
             createMemoUseCase: CreateMemoUseCase(repository: repository),
             saveMemoUseCase: SaveMemoUseCase(repository: repository),
             deleteMemoUseCase: DeleteMemoUseCase(repository: repository),
-            updateFloatingOriginUseCase: UpdateFloatingOriginUseCase(repository: repository),
+            loadStickyNotesUseCase: LoadStickyNotesUseCase(repository: stickyNoteRepository),
+            saveStickyNoteUseCase: SaveStickyNoteUseCase(repository: stickyNoteRepository),
+            deleteStickyNoteUseCase: DeleteStickyNoteUseCase(repository: stickyNoteRepository),
+            deleteStickyNotesOfTemplateUseCase: DeleteStickyNotesOfTemplateUseCase(repository: stickyNoteRepository),
+            flushStickyNotesUseCase: FlushStickyNotesUseCase(repository: stickyNoteRepository),
             flushMemosUseCase: FlushMemosUseCase(repository: repository),
             observeWriteStatesUseCase: ObserveWriteStatesUseCase(monitor: monitor),
             settings: settings,
@@ -151,11 +183,156 @@ final class AppRootViewModel: ObservableObject {
             memos = try loadMemosUseCase()
             didFailToLoad = false
             pruneUnusedImageAssets()
+            reloadStickyNotes()
         } catch {
             // 読めなかったときに空配列を入れると「メモが 0 件」と区別できません。
             // 手元の内容はそのまま残します。
             didFailToLoad = true
         }
+    }
+
+    /// 付箋を読み直す。
+    ///
+    /// **読めなかったときは今の一覧を残します。** 空を入れると「0 件」と区別できず、
+    /// ディスクには残っているのに画面から消えたように見えます（メモ側と同じ扱い）。
+    private func reloadStickyNotes() {
+        guard let loaded = try? loadStickyNotesUseCase() else {
+            return
+        }
+
+        stickyNotes = loaded
+    }
+
+    /// 描ける付箋。**雛形のある付箋だけ**です。
+    ///
+    /// **消しません。隠すだけです。** 雛形の `memo.json` が壊れて 1 件だけ読み飛ばされると、
+    /// その雛形の付箋が「雛形が消えた」ように見えます。そこで削除すると、
+    /// **雛形を直しても本文は戻りません。** 明示的に雛形を削除したときは
+    /// `deleteStickyNotes(ofTemplate:)` が片付けるので、起動時に掃除する必要はありません。
+    var presentableStickyNotes: [StickyNote] {
+        let templateIDs = Set(memos.map(\.id))
+
+        return stickyNotes.filter { templateIDs.contains($0.templateID) }
+    }
+
+    // MARK: - 付箋
+
+    /// 雛形から付箋を 1 枚出す。**何枚でも出せます。**
+    ///
+    /// **題名を決めて、先に一覧へ入れてから保存します。** 保存を待ってから足すと、
+    /// 続けて押されたときに**両方が同じ題名を選びます。**
+    @discardableResult
+    func createStickyNote(from template: Memo, at origin: CGPoint) async -> StickyNote? {
+        let note = StickyNote(
+            templateID: template.id,
+            title: naming.title(forTemplate: template, existing: stickyNotes),
+            origin: origin
+        )
+        stickyNotes.insert(note, at: 0)
+
+        do {
+            let saved = try await saveStickyNoteUseCase(note)
+            touchStickyNote(id: saved.id, updatedAt: saved.updatedAt)
+
+            return saved
+        } catch {
+            persistenceStatus = .failing
+
+            return note
+        }
+    }
+
+    func saveStickyNote(_ note: StickyNote) async {
+        // **先に一覧へ反映します。** 本文と位置は別々に保存されるので、
+        // 書き終わるまで待つと、**もう片方が古い写しから書き直して打ち消します**
+        // （打ちながら窓を動かすと再現します）。
+        apply(note)
+
+        do {
+            let saved = try await saveStickyNoteUseCase(note)
+            // **戻り値で丸ごと置き換えません。** 待っている間に別の変更が入っていると、
+            // **保存を始めた時点の値へ巻き戻ります。** 進めるのは更新日時だけです。
+            touchStickyNote(id: saved.id, updatedAt: saved.updatedAt)
+        } catch {
+            // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
+            persistenceStatus = .failing
+        }
+    }
+
+    /// 保存できた印として更新日時だけ進める。**戻る方向へは動かしません。**
+    private func touchStickyNote(id: StickyNote.ID, updatedAt: Date) {
+        guard let index = stickyNotes.firstIndex(where: { $0.id == id }),
+              stickyNotes[index].updatedAt < updatedAt else {
+            return
+        }
+
+        stickyNotes[index].updatedAt = updatedAt
+    }
+
+    /// 雛形から消えたテキスト要素の本文を、付箋から落とす。
+    ///
+    /// **落とす分があるときだけ書きます。** キャンバスの保存は 1 操作ごとに走るので、
+    /// 毎回全部の付箋を書き直すと保存が膨れます。
+    private func pruneStickyNotes(against template: Memo) async {
+        let composer = StickyNoteCanvasComposer()
+        let targets = stickyNotes.filter { $0.templateID == template.id }.map(\.id)
+
+        for id in targets {
+            // **1 件ごとに引き直します。** 前の 1 件を待っている間に別の付箋が
+            // 書き換わっていると、**始めた時点の写しで丸ごと上書き**してしまいます。
+            guard let note = stickyNotes.first(where: { $0.id == id }) else {
+                continue
+            }
+
+            let pruned = composer.pruned(note, against: template.canvas)
+
+            guard pruned != note else {
+                continue
+            }
+
+            await saveStickyNote(pruned)
+        }
+    }
+
+    /// 付箋の題名を変える。**一覧で見分けるための名前です。**
+    func renameStickyNote(id: StickyNote.ID, to title: String) async {
+        guard var note = stickyNotes.first(where: { $0.id == id }), note.title != title else {
+            return
+        }
+
+        note.title = title
+        await saveStickyNote(note)
+    }
+
+    func deleteStickyNote(id: StickyNote.ID) async {
+        stickyNotes.removeAll { $0.id == id }
+
+        try? await deleteStickyNoteUseCase(id: id)
+    }
+
+    /// 雛形から出した付箋をすべて片付ける。**雛形を消すときに呼びます。**
+    func deleteStickyNotes(ofTemplate templateID: Memo.ID) async {
+        let removed = (try? await deleteStickyNotesOfTemplateUseCase(
+            templateID: templateID,
+            in: stickyNotes
+        )) ?? []
+
+        stickyNotes.removeAll { removed.contains($0.id) }
+    }
+
+    /// 付箋を一覧へ反映する。
+    ///
+    /// **一覧に無ければ足しません。** 打った直後にはがすと、後から届いた保存が
+    /// **消したはずの付箋を復活させます。**
+    ///
+    /// **その場で置き換えます。並べ直しません。** `updatedAt` の降順に直すと、
+    /// 1 打鍵ごとに一覧の中で付箋が跳ね上がります。並び順は読み込み時に決まります。
+    private func apply(_ note: StickyNote) {
+        guard let index = stickyNotes.firstIndex(where: { $0.id == note.id }) else {
+            return
+        }
+
+        stickyNotes[index] = note
     }
 
     /// 参照されなくなった画像を消す。**読み込んだ直後にだけ行います。**
@@ -190,6 +367,8 @@ final class AppRootViewModel: ObservableObject {
         do {
             try await deleteMemoUseCase(memo.id)
             memos.removeAll { $0.id == memo.id }
+            // **付箋は形を持ちません。** 雛形が消えたら描きようがないので一緒に片付けます。
+            await deleteStickyNotes(ofTemplate: memo.id)
 
             if selectedMemo?.id == memo.id {
                 selectedMemo = nil
@@ -200,8 +379,6 @@ final class AppRootViewModel: ObservableObject {
     }
 
     func saveMemo(_ memo: Memo) async {
-        let memo = preservingFieldsCanvasDoesNotOwn(memo)
-
         do {
             // 戻り値を使うのが要点。`SaveMemoUseCase` が更新日時を差し替えるため、
             // 引数の `memo` をそのまま一覧へ入れると更新日時が古いままになります。
@@ -209,43 +386,11 @@ final class AppRootViewModel: ObservableObject {
 
             selectedMemo = savedMemo
             apply(savedMemo)
+            await pruneStickyNotes(against: savedMemo)
         } catch {
             // 画面上は編集結果を保ちます。失敗は状態表示で伝えます。
             selectedMemo = memo
             apply(memo)
-        }
-    }
-
-    /// **キャンバスは開いた時点の写しを持ち続けます。** その間に貼り付け位置が変わっても
-    /// キャンバス側は知らないため、そのまま書くと位置が巻き戻ります
-    /// （貼ったウィンドウを動かしたあとキャンバスを編集する、で再現します）。
-    /// 貼り付け位置はキャンバスが編集しない情報なので、一覧側の値を残します。
-    private func preservingFieldsCanvasDoesNotOwn(_ memo: Memo) -> Memo {
-        guard let current = memos.first(where: { $0.id == memo.id }) else {
-            return memo
-        }
-
-        var preserved = memo
-        preserved.floatingOrigin = current.floatingOrigin
-
-        return preserved
-    }
-
-    /// デスクトップに貼る位置を書き換える。`nil` ではがします。
-    func updateFloatingOrigin(_ origin: CGPoint?, for memoID: Memo.ID) async {
-        guard let memo = memos.first(where: { $0.id == memoID }), memo.floatingOrigin != origin else {
-            return
-        }
-
-        do {
-            let savedMemo = try await updateFloatingOriginUseCase(memo, to: origin)
-            apply(savedMemo)
-
-            if selectedMemo?.id == savedMemo.id {
-                selectedMemo?.floatingOrigin = origin
-            }
-        } catch {
-            // 書けなくても画面上は貼ったままにします。失敗は状態表示が伝えます。
         }
     }
 
@@ -284,6 +429,9 @@ final class AppRootViewModel: ObservableObject {
     @discardableResult
     func flush() async -> Bool {
         do {
+            // **付箋も待ちます。** 本文は 1 打鍵ごとに保存されるので、
+            // 待たないと**最後に打った内容が書かれないまま終了します。**
+            try await flushStickyNotesUseCase()
             try await flushMemosUseCase()
 
             return true

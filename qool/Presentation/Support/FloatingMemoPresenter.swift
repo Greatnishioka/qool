@@ -1,160 +1,208 @@
 import Combine
 import Foundation
 
-/// デスクトップに貼ったメモを、一覧の状態に合わせて開閉する。
+/// 机の上の付箋を、一覧の状態に合わせて開閉する。
 ///
-/// **`Memo.floatingOrigin` が唯一の正です。** 貼る／はがすはこの値を書き換えるだけで、
+/// **`StickyNote` の存在が唯一の正です。** 出す／はがすはレコードを足す・消すだけで、
 /// ウィンドウの開閉はここが追従します。二重に状態を持つと、保存内容と画面が食い違います。
+///
+/// **形は雛形が持ち、本文は付箋が持ちます**
+/// （[#29](https://github.com/Greatnishioka/qool/issues/29)）。
+/// 描くたびに雛形の canvas へ本文を差し込んで組み立てます。
 @MainActor
 final class FloatingMemoPresenter {
     private let viewModel: AppRootViewModel
     private let buildOutline = BuildFloatingMemoOutlineUseCase()
-    private let updateElementUseCase = UpdateCanvasElementUseCase()
+    private let composer = StickyNoteCanvasComposer()
     private let windows = FloatingMemoWindowManager()
 
     /// 直前に描いた内容。**ドラッグ中の位置保存で中身まで作り直さない**ために持ちます。
-    private var presentedCanvases: [Memo.ID: Canvas] = [:]
+    private var presentedCanvases: [StickyNote.ID: Canvas] = [:]
 
-    /// 本文を書き換えている最中のメモ。**この間は窓を作り直しません。**
-    private var editingMemoIDs: Set<Memo.ID> = []
+    /// 本文を書き換えている最中の付箋。**この間は窓を作り直しません。**
+    private var editingNoteIDs: Set<StickyNote.ID> = []
 
-    private var memosObserver: AnyCancellable?
+    private var observers: Set<AnyCancellable> = []
 
     init(viewModel: AppRootViewModel) {
         self.viewModel = viewModel
     }
 
-    /// 起動時に一度だけ呼びます。貼ってあったメモを復元し、以後の変更へ追従します。
+    /// 起動時に一度だけ呼びます。出してあった付箋を復元し、以後の変更へ追従します。
+    ///
+    /// **雛形と付箋の両方を見ます。** 雛形を直すと付箋の形も変わるためです。
     func start() {
-        synchronize(with: viewModel.memos)
-        memosObserver = viewModel.$memos.sink { [weak self] memos in
-            self?.synchronize(with: memos)
-        }
+        synchronize(memos: viewModel.memos, notes: viewModel.stickyNotes)
+
+        // **受け取った値をそのまま使います。** `@Published` は書き換える「前」に流すので、
+        // sink の中でプロパティを読み直すと**変更前の一覧**を見ます。
+        // 付箋を 1 枚目に出しても窓が開かず、はがしても窓が残ります。
+        viewModel.$memos
+            .combineLatest(viewModel.$stickyNotes)
+            .sink { [weak self] memos, notes in
+                self?.synchronize(memos: memos, notes: notes)
+            }
+            .store(in: &observers)
     }
 
-    /// 貼れるのは要素のあるメモだけです。空のキャンバスには形がありません。
-    func canPin(_ memo: Memo) -> Bool {
-        buildOutline(from: memo.canvas) != nil
+    /// 付箋を出せるのは要素のある雛形だけです。空のキャンバスには形がありません。
+    func canCreateStickyNote(from template: Memo) -> Bool {
+        buildOutline(from: template.canvas) != nil
     }
 
-    func pin(_ memo: Memo) {
-        guard let outline = buildOutline(from: memo.canvas) else {
+    /// 雛形から付箋を 1 枚出す。**何枚でも出せます。**
+    func createStickyNote(from template: Memo) {
+        guard let outline = buildOutline(from: template.canvas) else {
             return
         }
 
+        // 置き場所は今までと同じ決め方（画面中央からカスケード）です。
         let origin = windows.nextOrigin(for: outline)
-        Task { await viewModel.updateFloatingOrigin(origin, for: memo.id) }
+        Task { await viewModel.createStickyNote(from: template, at: origin) }
     }
 
-    func unpin(_ memoID: Memo.ID) {
-        Task { await viewModel.updateFloatingOrigin(nil, for: memoID) }
+    /// 付箋をはがす。**レコードごと消します。** 位置だけ残った状態を作りません。
+    func removeStickyNote(_ noteID: StickyNote.ID) {
+        Task { await viewModel.deleteStickyNote(id: noteID) }
+    }
+
+    /// その付箋の窓を前面へ出す。
+    ///
+    /// **一覧を作った理由がこれです。** 画面の外や他のウィンドウの裏へ行った付箋に、
+    /// 辿り着く手段が他にありません。
+    func focus(_ noteID: StickyNote.ID) {
+        windows.activate(noteID)
+    }
+
+    /// その雛形から出ている付箋。ホットキーの切り替えに使います。
+    func stickyNotes(of templateID: Memo.ID) -> [StickyNote] {
+        viewModel.stickyNotes.filter { $0.templateID == templateID }
     }
 
     // MARK: -
 
-    private func synchronize(with memos: [Memo]) {
-        let floatingMemos = memos.filter { $0.floatingOrigin != nil }
+    private func synchronize(memos: [Memo], notes: [StickyNote]) {
+        let templates = Dictionary(memos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var shown: Set<StickyNote.ID> = []
 
-        for memo in floatingMemos {
-            present(memo)
+        for note in notes {
+            guard let template = templates[note.templateID] else {
+                // **雛形が見つからないだけでは消しません。** `memo.json` が壊れて
+                // 1 件読み飛ばされただけかもしれず、そこで消すと直しても本文が戻りません。
+                continue
+            }
+
+            if present(note, from: template) {
+                shown.insert(note.id)
+            }
         }
 
-        for memoID in windows.showingMemoIDs.subtracting(floatingMemos.map(\.id)) {
-            close(memoID)
+        for noteID in windows.showingNoteIDs.subtracting(shown) {
+            close(noteID)
         }
     }
 
-    private func present(_ memo: Memo) {
-        guard let origin = memo.floatingOrigin, let outline = buildOutline(from: memo.canvas) else {
-            // 要素をすべて消したメモには形がありません。**ウィンドウを閉じるだけでなく
-            // `floatingOrigin` も戻します。** 残すと一覧に「はがす」が出続け、
-            // 要素を足し直した瞬間に、貼り直していないのに現れます。
-            close(memo.id)
+    /// - Returns: 窓を出している（出し続けてよい）なら `true`。
+    @discardableResult
+    private func present(_ note: StickyNote, from template: Memo) -> Bool {
+        guard let outline = buildOutline(from: template.canvas) else {
+            // 雛形の要素をすべて消すと形がなくなります。描きようがないので閉じます。
+            // **付箋のレコードは消しません。** 要素を戻せばまた出ます。
+            close(note.id)
 
-            if memo.floatingOrigin != nil {
-                unpin(memo.id)
-            }
-
-            return
+            return false
         }
 
         // **書き換え中は中身を差し替えません。** 1 文字打つたびに保存が走り、
         // その反映で `rootView` が入れ替わると、キャレットと日本語変換が飛びます。
         // **`presentedCanvases` もわざと進めません。** 進めると、抜けたあとに
         // 「同じ内容だ」と判断して当て直しが起きなくなります。
-        guard !editingMemoIDs.contains(memo.id) else {
-            return
+        guard !editingNoteIDs.contains(note.id) else {
+            return true
         }
 
-        guard presentedCanvases[memo.id] != memo.canvas || !windows.isShowing(memo.id) else {
-            return
+        let canvas = composer.canvas(for: note, from: template.canvas)
+
+        guard presentedCanvases[note.id] != canvas || !windows.isShowing(note.id) else {
+            return true
         }
 
-        presentedCanvases[memo.id] = memo.canvas
+        presentedCanvases[note.id] = canvas
         windows.show(
-            memoID: memo.id,
+            noteID: note.id,
             outline: outline,
-            origin: origin,
+            origin: note.origin,
             content: FloatingMemoView(
-                memo: memo,
+                canvas: canvas,
+                templateID: template.id,
                 outline: outline,
                 imageStore: viewModel.imageStore,
                 maskStore: viewModel.maskStore,
-                onEdit: { [weak self] in self?.viewModel.requestCanvas(for: memo.id) },
-                onRemove: { [weak self] in self?.unpin(memo.id) },
+                onEdit: { [weak self] in self?.viewModel.requestCanvas(for: template.id) },
+                onRemove: { [weak self] in self?.removeStickyNote(note.id) },
                 onTextChange: { [weak self] elementID, text in
-                    self?.updateText(text, of: elementID, in: memo.id)
+                    self?.updateText(text, of: elementID, in: note.id)
                 },
                 onEditingChange: { [weak self] isEditing in
-                    self?.setEditing(isEditing, for: memo.id)
+                    self?.setEditing(isEditing, for: note.id)
                 },
                 onToolbar: { [weak self] owner, request in
                     self?.viewModel.updateRichTextToolbar(request, from: owner)
                 }
             ),
             onMove: { [weak self] movedOrigin in
-                Task { await self?.viewModel.updateFloatingOrigin(movedOrigin, for: memo.id) }
+                self?.updateOrigin(movedOrigin, of: note.id)
             }
         )
+
+        return true
     }
 
-    /// 貼ったまま書き換えた本文を保存する。
+    /// 書き換えた本文を保存する。
     ///
-    /// **一覧の最新から組み立てます。** 窓が抱えている `memo` は貼った時点の写しなので、
+    /// **一覧の最新から組み立てます。** 窓が抱えている付箋は開いた時点の写しなので、
     /// そのまま書くと、その間に変わった他の値を巻き戻します。
-    private func updateText(_ text: String, of elementID: CanvasElement.ID, in memoID: Memo.ID) {
-        guard var memo = viewModel.memos.first(where: { $0.id == memoID }) else {
+    private func updateText(_ text: String, of elementID: CanvasElement.ID, in noteID: StickyNote.ID) {
+        guard var note = viewModel.stickyNotes.first(where: { $0.id == noteID }) else {
             return
         }
 
-        updateElementUseCase(in: &memo.canvas.elements, id: elementID) { element in
-            element.text = text
+        note.texts[elementID] = text
+
+        Task { await viewModel.saveStickyNote(note) }
+    }
+
+    private func updateOrigin(_ origin: CGPoint, of noteID: StickyNote.ID) {
+        guard var note = viewModel.stickyNotes.first(where: { $0.id == noteID }), note.origin != origin else {
+            return
         }
 
-        Task { await viewModel.saveMemo(memo) }
+        note.origin = origin
+
+        Task { await viewModel.saveStickyNote(note) }
     }
 
     /// 書き換えの出入り。**抜けた時点で一度だけ窓を当て直します。**
-    private func setEditing(_ isEditing: Bool, for memoID: Memo.ID) {
-        guard editingMemoIDs.contains(memoID) != isEditing else {
+    private func setEditing(_ isEditing: Bool, for noteID: StickyNote.ID) {
+        guard editingNoteIDs.contains(noteID) != isEditing else {
             return
         }
 
         if isEditing {
-            editingMemoIDs.insert(memoID)
+            editingNoteIDs.insert(noteID)
             // **アプリを前面へ出します。** 出さないと入力メソッドが文字を渡してきません。
-            windows.activate(memoID)
+            windows.activate(noteID)
 
             return
         }
 
-        editingMemoIDs.remove(memoID)
-        synchronize(with: viewModel.memos)
+        editingNoteIDs.remove(noteID)
+        synchronize(memos: viewModel.memos, notes: viewModel.stickyNotes)
     }
 
-    private func close(_ memoID: Memo.ID) {
-        presentedCanvases.removeValue(forKey: memoID)
-        editingMemoIDs.remove(memoID)
-        windows.close(memoID)
+    private func close(_ noteID: StickyNote.ID) {
+        presentedCanvases.removeValue(forKey: noteID)
+        editingNoteIDs.remove(noteID)
+        windows.close(noteID)
     }
 }
