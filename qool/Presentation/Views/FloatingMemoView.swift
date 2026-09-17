@@ -1,9 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// デスクトップに貼ったメモの中身。輪郭でマスクするため、**四角い背景を描いてはいけません。**
+/// 机の上の付箋の中身。輪郭でマスクするため、**四角い背景を描いてはいけません。**
 struct FloatingMemoView: View {
-    let memo: Memo
+    /// 描く内容。**雛形の形に、この付箋の本文を差し込んだもの**です
+    /// （[#29](https://github.com/Greatnishioka/qool/issues/29)）。
+    let canvas: Canvas
+    /// 画像アセットの持ち主。**雛形です。** 付箋は自分の画像を持たず、
+    /// 雛形の名前空間をそのまま使います。
+    let templateID: Memo.ID
     let outline: FloatingMemoOutline
     let imageStore: CanvasImageStore
     @ObservedObject var maskStore: CutoutMaskStore
@@ -48,8 +53,8 @@ struct FloatingMemoView: View {
                 .scaleEffect(proxy.size.width / outline.bounds.width, anchor: .topLeading)
         }
         .contextMenu {
-            Button("編集", action: onEdit)
-            Button("デスクトップからはがす", action: onRemove)
+            Button("雛形を編集", action: onEdit)
+            Button("この付箋をはがす", action: onRemove)
         }
     }
 
@@ -72,12 +77,12 @@ struct FloatingMemoView: View {
     /// 要素はキャンバス座標のまま置かれるので、外接矩形の分だけずらして左上へ寄せます。
     private var elements: some View {
         elementSpace {
-            ForEach(memo.canvas.elements) { element in
+            ForEach(canvas.elements) { element in
                 CanvasElementView(
                     element: edited(element),
                     isSelected: false,
-                    image: element.imageAssetID.flatMap { imageStore.image(for: $0, in: memo.id) },
-                    drawingMask: maskStore.drawingMask(for: element, in: memo.id),
+                    image: element.imageAssetID.flatMap { imageStore.image(for: $0, in: templateID) },
+                    drawingMask: maskStore.drawingMask(for: element, in: templateID),
                     textEditing: textEditing(for: element)
                 )
             }
@@ -94,7 +99,7 @@ struct FloatingMemoView: View {
     /// ウィンドウを掴んで動かせなくなります。
     private var textHitAreas: some View {
         elementSpace {
-            ForEach(memo.canvas.elements.filter { $0.kind == .text }) { element in
+            ForEach(canvas.elements.filter { $0.kind == .text }) { element in
                 Color.clear
                     .frame(width: element.frame.width, height: max(2, element.frame.height))
                     .contentShape(Rectangle())

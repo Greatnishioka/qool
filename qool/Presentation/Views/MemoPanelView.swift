@@ -180,7 +180,7 @@ struct MemoPanelView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
-                Task { await viewModel.deleteStickyNote(id: note.id) }
+                floatingMemos.removeStickyNote(note.id)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 10))
@@ -234,18 +234,7 @@ struct MemoPanelView: View {
                 Button("付箋を出す") {
                     floatingMemos.createStickyNote(from: memo)
                 }
-                .disabled(!floatingMemos.canPin(memo))
-
-                if memo.floatingOrigin == nil {
-                    Button("デスクトップに貼る") {
-                        floatingMemos.pin(memo)
-                    }
-                    .disabled(!floatingMemos.canPin(memo))
-                } else {
-                    Button("デスクトップからはがす") {
-                        floatingMemos.unpin(memo.id)
-                    }
-                }
+                .disabled(!floatingMemos.canCreateStickyNote(from: memo))
 
                 Divider()
 

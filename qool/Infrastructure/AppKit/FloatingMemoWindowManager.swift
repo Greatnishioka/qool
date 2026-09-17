@@ -1,7 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// デスクトップに貼ったメモのウィンドウを開閉し、メモ 1 件につき 1 枚に保ちます。
+/// 机の上の付箋のウィンドウを開閉し、**付箋 1 件につき 1 枚**に保ちます。
+///
+/// **鍵は付箋の id です。** 同じ雛形から何枚でも出せるので、雛形では数えられません
+/// （[#29](https://github.com/Greatnishioka/qool/issues/29)）。
 @MainActor
 final class FloatingMemoWindowManager: NSObject, NSWindowDelegate {
     /// ウィンドウの大きさの上下限。**キャンバス座標をそのまま使うと、大きく描いたメモが画面を覆います。**
@@ -13,40 +16,40 @@ final class FloatingMemoWindowManager: NSObject, NSWindowDelegate {
     private static let cascadeStep: CGFloat = 24
     private static let cascadeCount = 5
 
-    private var windows: [Memo.ID: FloatingMemoWindow] = [:]
-    private var moveHandlers: [Memo.ID: (CGPoint) -> Void] = [:]
+    private var windows: [StickyNote.ID: FloatingMemoWindow] = [:]
+    private var moveHandlers: [StickyNote.ID: (CGPoint) -> Void] = [:]
 
     override init() {
         super.init()
     }
 
-    var showingMemoIDs: Set<Memo.ID> {
+    var showingNoteIDs: Set<StickyNote.ID> {
         Set(windows.keys)
     }
 
-    func isShowing(_ memoID: Memo.ID) -> Bool {
-        windows[memoID] != nil
+    func isShowing(_ noteID: StickyNote.ID) -> Bool {
+        windows[noteID] != nil
     }
 
-    /// まだ貼っていないメモを置く位置。**貼る操作の側で位置を決めて保存するため**に公開しています。
+    /// 新しく出す付箋を置く位置。**出す操作の側で位置を決めて保存するため**に公開しています。
     func nextOrigin(for outline: FloatingMemoOutline) -> CGPoint {
         cascadeOrigin(for: Self.windowSize(for: outline.bounds))
     }
 
-    /// 貼る、または貼ったままのウィンドウの中身を最新へ差し替える。
+    /// 出す、または出したままのウィンドウの中身を最新へ差し替える。
     ///
     /// - Parameter onMove: ドラッグで動いたあとの左下位置。保存する側が受け取ります。
     func show<Content: View>(
-        memoID: Memo.ID,
+        noteID: StickyNote.ID,
         outline: FloatingMemoOutline,
         origin: CGPoint,
         content: Content,
         onMove: @escaping (CGPoint) -> Void
     ) {
-        moveHandlers[memoID] = onMove
+        moveHandlers[noteID] = onMove
         let size = Self.windowSize(for: outline.bounds)
 
-        if let window = windows[memoID] {
+        if let window = windows[noteID] {
             update(window, with: content, contours: outline.contours, size: size)
 
             return
@@ -59,7 +62,7 @@ final class FloatingMemoWindowManager: NSObject, NSWindowDelegate {
             display: true
         )
 
-        windows[memoID] = window
+        windows[noteID] = window
         window.delegate = self
         window.makeKeyAndOrderFront(nil)
     }
@@ -70,8 +73,8 @@ final class FloatingMemoWindowManager: NSObject, NSWindowDelegate {
     /// キーウィンドウにはなるのでキャレットは出ますが、**アプリが非アクティブのままだと
     /// 入力メソッドが文字を渡してきません。** 日本語の変換候補が画面の隅に出たまま、
     /// 確定しても本文に何も入らない状態になります（実機で踏みました）。
-    func activate(_ memoID: Memo.ID) {
-        guard let window = windows[memoID] else {
+    func activate(_ noteID: StickyNote.ID) {
+        guard let window = windows[noteID] else {
             return
         }
 
@@ -79,10 +82,10 @@ final class FloatingMemoWindowManager: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    func close(_ memoID: Memo.ID) {
-        moveHandlers.removeValue(forKey: memoID)
+    func close(_ noteID: StickyNote.ID) {
+        moveHandlers.removeValue(forKey: noteID)
 
-        guard let window = windows.removeValue(forKey: memoID) else {
+        guard let window = windows.removeValue(forKey: noteID) else {
             return
         }
 
@@ -93,11 +96,11 @@ final class FloatingMemoWindowManager: NSObject, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) {
         guard let window = notification.object as? FloatingMemoWindow,
-              let memoID = windows.first(where: { $0.value === window })?.key else {
+              let noteID = windows.first(where: { $0.value === window })?.key else {
             return
         }
 
-        moveHandlers[memoID]?(window.frame.origin)
+        moveHandlers[noteID]?(window.frame.origin)
     }
 
     // MARK: -

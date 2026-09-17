@@ -182,11 +182,20 @@ final class HotKeyCoordinator: ObservableObject {
             return
         }
 
-        if memo.floatingOrigin == nil {
-            floatingMemos.pin(memo)
-        } else {
-            floatingMemos.unpin(memo.id)
+        // **出ていれば全部しまい、出ていなければ 1 枚出します。**
+        // 同じ雛形から何枚でも出せるので、「1 枚だけ」の切り替えでは足りません
+        // （[#29](https://github.com/Greatnishioka/qool/issues/29)）。
+        let notes = floatingMemos.stickyNotes(of: memo.id)
+
+        guard notes.isEmpty else {
+            for note in notes {
+                floatingMemos.removeStickyNote(note.id)
+            }
+
+            return
         }
+
+        floatingMemos.createStickyNote(from: memo)
     }
 
     // MARK: - オーバーレイ
