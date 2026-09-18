@@ -64,7 +64,14 @@ final class FloatingMemoWindowManager: NSObject, NSWindowDelegate {
 
         windows[noteID] = window
         window.delegate = self
-        window.makeKeyAndOrderFront(nil)
+        // **キーは奪いません。** 付箋を出す操作はメニューバーのパネルから行われ、
+        // **メニューは入れ子の実行ループの中で動いています。** その最中にキーを奪うと、
+        // 入力の受け口の紐づけが半端に残り、**そのあと編集に入っても
+        // 入力メソッドが応答しなくなります**（[#26](https://github.com/Greatnishioka/qool/issues/26)）。
+        //
+        // 編集に入るときは `activate(_:)` が改めて前面へ出すので、ここで奪う必要はありません。
+        // 出した付箋にいきなり焦点が移らないのは、振る舞いとしてもこちらが自然です。
+        window.orderFront(nil)
     }
 
     /// 本文を書き換えるために、アプリごと前面へ出す。
